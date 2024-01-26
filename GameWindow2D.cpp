@@ -266,6 +266,7 @@ void GameWindow2D::ShowWindow(bool Centered)
 {
 	::ShowWindow(m_hwnd, showWindowCommand);
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	SetForegroundWindow(m_hwnd);
 	WindowOpen = true;
 }
 void GameWindow2D::HideWindow()
