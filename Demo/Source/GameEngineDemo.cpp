@@ -139,7 +139,7 @@ int main()
 	G1->onUpdateFrame = [](double deltaTime) { Update(deltaTime); };
 	G1->onRenderFrame = []() { Render(); };
 	G1->onClose = []() {Close(); };
-	G1->GetInput(60, false);
+	G1->Run(60, false);
 	Direct2DStartup(G1->m_hwnd);
 	G1->ShowWindow(true);
 	DemoMenu m1 = DemoMenu(L"2D Game Engine Demo");

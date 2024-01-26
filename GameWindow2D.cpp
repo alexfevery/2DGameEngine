@@ -37,7 +37,7 @@ GameWindow2D::GameWindow2D(float screenWidthPercent, float screenHeightPercent)
 }
 
 
-void GameWindow2D::GetInput(int FPS, bool Show)
+void GameWindow2D::Run(int FPS, bool Show)
 {
 	this->TargetFrameRate = FPS;
 	RunWindow.store(true);

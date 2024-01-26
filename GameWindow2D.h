@@ -40,7 +40,7 @@ class GameWindow2D
 public:
 	GameWindow2D(float screenWidthPercent, float screenHeightPercent);
 
-    void GetInput(int FPS, bool Show);
+    void Run(int FPS, bool Show);
 
 
 	HWND m_hwnd;
