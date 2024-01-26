@@ -92,13 +92,13 @@ LRESULT CALLBACK Input::ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam
 		SetFocus(hEdit);
 		if (msg == WM_MOUSEWHEEL)
 		{
-			Util::InputManager::UpdateMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+			KeyboardMouseState::UpdateMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
 		}
 		if (msg == WM_MOUSEMOVE)
 		{
 			POINT ptClient = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 			ClientToScreen(m_hwnd, &ptClient);
-			Util::InputManager::UpdateMouseMove(ptClient.x, ptClient.y);
+			KeyboardMouseState::UpdateMouseMove(ptClient.x, ptClient.y);
 		}
 		break;
 	case WM_LBUTTONDOWN:
@@ -180,8 +180,8 @@ void Input::GetControls()
 {
 	if (GetForegroundWindow() == hInputWindow)
 	{
-		Util::InputManager::CaptureInput();
-		if (g_onNextKeyDown && Util::InputManager::GetFirstKeyPressed() != -1)
+		KeyboardMouseState::CaptureInput();
+		if (g_onNextKeyDown && !KeyboardMouseState::GetKeysPressed().empty())
 		{
 			g_onNextKeyDown();
 			g_onNextKeyDown = nullptr;
@@ -192,70 +192,89 @@ void Input::GetControls()
 			if (!a1->IsSet()) { continue; }
 			if (a1->ExpectedType == InputType::TEXTENTRY && !IMEComposing)
 			{
-				if ((Util::InputManager::IsControlFreshlyPressed(VK_ESCAPE) && a1->AllowCancel) || Util::InputManager::IsControlFreshlyPressed(VK_RETURN))
+				if ((KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) && a1->AllowCancel) || KeyboardMouseState::IsControlFreshlyPressed(VK_RETURN))
 				{
 					if (IMEActivated)
 					{
 						IMEActivated = false;
 						continue;
 					}
-					a1->UserAction.vk_code = (Util::InputManager::IsControlFreshlyPressed(VK_ESCAPE) ? VK_ESCAPE : VK_RETURN);
+					a1->UserAction.vk_codes = { (KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) ? VK_ESCAPE : VK_RETURN) };
 					if (g_onEndTextEntryFunc) { SetInputText(g_onEndTextEntryFunc(GetInputText()), true, false); }
 					TextInputState::SetInputState(ProcessTextInput());
-					a1->TriggerInput(Util::InputManager::IsControlFreshlyPressed(VK_ESCAPE) ? InputResultType::INPUTCANCEL : InputResultType::TEXTSUBMIT);
-					continue;
+					a1->TriggerInput(KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) ? InputResultType::INPUTCANCEL : InputResultType::TEXTSUBMIT);
 				}
+				continue;
 			}
 
-			if ((a1->ExpectedType == InputType::MOUSECLICK) && Util::InputManager::IsControlFreshlyPressed(VK_LBUTTON))
+			if ((a1->ExpectedType == InputType::MOUSECLICK) && KeyboardMouseState::IsControlFreshlyPressed(VK_LBUTTON))
 			{
-				if (Util::PosDistanceClientArea(hInputWindow, Util::InputManager::GetMousePos()) == Util::Vector2(0))
+				if (Util::PosDistanceClientArea(hInputWindow, KeyboardMouseState::GetMousePos()) == Util::Vector2(0))
 				{
-					a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, Util::InputManager::GetMousePos());
-					a1->UserAction.vk_code = VK_LBUTTON;
+					a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, KeyboardMouseState::GetMousePos());
+					a1->UserAction.vk_codes = { VK_LBUTTON };
 					a1->TriggerInput(InputResultType::MOUSECLICK);
-					continue;
 				}
+				continue;
 			}
 
-			if ((a1->ExpectedType == InputType::MOUSEWHEEL) && Util::InputManager::GetLastMouseWheelDelta() != 0)
+			if ((a1->ExpectedType == InputType::MOUSEWHEEL) && KeyboardMouseState::GetLastMouseWheelDelta() != 0)
 			{
-				if (Util::PosDistanceClientArea(hInputWindow, Util::InputManager::GetMousePos()) == Util::Vector2(0, 0))
+				if (Util::PosDistanceClientArea(hInputWindow, KeyboardMouseState::GetMousePos()) == Util::Vector2(0, 0))
 				{
-					a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, Util::InputManager::GetMousePos());
-					a1->UserAction.mouseWheelDelta = Util::InputManager::GetLastMouseWheelDelta();
+					a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, KeyboardMouseState::GetMousePos());
+					a1->UserAction.mouseWheelDelta = KeyboardMouseState::GetLastMouseWheelDelta();
 					a1->TriggerInput(InputResultType::MOUSEWHEEL);
-					continue;
 				}
+				continue;
 			}
 
 			if (a1->ExpectedType == InputType::KEYPRESS || a1->ExpectedType == InputType::KEYDOWN || a1->ExpectedType == InputType::KEYUP)
 			{
-				int FirstKey = (a1->ExpectedType == InputType::KEYDOWN ? Util::InputManager::GetFirstKeyDown() : a1->ExpectedType == InputType::KEYUP ? Util::InputManager::GetFirstKeyReleased() : Util::InputManager::GetFirstKeyPressed());
-				if (FirstKey == -1) { continue; }
-				if ((a1->ExpectedKeys.empty() || std::find(a1->ExpectedKeys.begin(), a1->ExpectedKeys.end(), FirstKey) != a1->ExpectedKeys.end()))
+				vector<int> Keys;
+				if (a1->ExpectedType == InputType::KEYPRESS) { Keys = KeyboardMouseState::GetKeysPressed(); }
+				else if (a1->ExpectedType == InputType::KEYDOWN) { Keys = KeyboardMouseState::GetKeysDown(); }
+				else { Keys = KeyboardMouseState::GetKeysReleased(); }
+				if (!Keys.empty())
 				{
-					a1->UserAction.vk_code = FirstKey;
-					a1->TriggerInput(InputResultType::KEYPRESS);
-					continue;
+					bool triggered = false;
+					for (int i = 0; i < a1->ExpectedKeys.size(); i++)
+					{
+						bool allMet = true;
+						for (int u = 0; u < a1->ExpectedKeys[i].size(); u++)
+						{
+							if (!Util::VectorContains(Keys, a1->ExpectedKeys[i][u]))
+							{
+								allMet = false;
+								break;
+							}
+						}
+						if (allMet)
+						{
+							a1->UserAction.vk_codes = a1->ExpectedKeys[i];
+							a1->TriggerInput(InputResultType::KEYPRESS);
+							break;
+						}
+					}
 				}
+				continue;
 			}
 
-			if ((a1->ExpectedType == InputType::MOUSEMOVE) && Util::InputManager::GetLastMouseDelta() != Util::Vector2(0))
+			if ((a1->ExpectedType == InputType::MOUSEMOVE) && KeyboardMouseState::GetLastMouseDelta() != Util::Vector2(0))
 			{
-				if (Util::PosDistanceClientArea(hInputWindow, Util::InputManager::GetMousePos()) == Util::Vector2(0, 0))
+				if (Util::PosDistanceClientArea(hInputWindow, KeyboardMouseState::GetMousePos()) == Util::Vector2(0, 0))
 				{
-					a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, Util::InputManager::GetMousePos());
-					a1->UserAction.MouseDelta = Util::InputManager::GetLastMouseDelta();
+					a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, KeyboardMouseState::GetMousePos());
+					a1->UserAction.MouseDelta = KeyboardMouseState::GetLastMouseDelta();
 					a1->TriggerInput(InputResultType::MOUSEMOVE);
-					continue;
 				}
+				continue;
 			}
 			if (a1->ExpectedType == InputType::TEXTENTRY) { TextInputInProgress = true; }
 
 			if (a1->ExpectedType == InputType::IDLE)
 			{
-				a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, Util::InputManager::GetMousePos());
+				a1->UserAction.MousePos = Util::GetClientAreaPos(hInputWindow, KeyboardMouseState::GetMousePos());
 				a1->UserAction.MouseDelta = Util::Vector2(0, 0);
 				a1->TriggerInput(InputResultType::IDLE);
 				continue;
@@ -263,7 +282,7 @@ void Input::GetControls()
 		}
 		if (ManualInputFlag || TextInputInProgress) { TextInputState::SetInputState(ProcessTextInput()); }
 		else { TextInputState::SetInputState({}); }
-		Util::InputManager::ResetInput();
+		KeyboardMouseState::ResetInput();
 	}
 	else
 	{

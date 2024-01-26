@@ -63,7 +63,7 @@ namespace GraphicsInterface
 		{
 			Util_Assert(!dedicatedThread || std::this_thread::get_id() != dedicatedThread->get_id(), L"Error: Cannot call external interface function from internal interface function");
 			Util_Assert(RenderEngineInitialized, L"Error: Render Engine is not initialized");
-			if (!dedicatedThread);
+			if (!dedicatedThread)
 			{
 				dedicatedThread = new std::thread(&Interface::processQueue);
 			}
@@ -102,6 +102,12 @@ namespace GraphicsInterface
 				}
 			}
 		}
+
+		static std::vector<GUIText> CreateInputLine(std::wstring currentInputText, Util::Vector2 Pos, bool ManualInputFlag);
+		static inline std::thread* dedicatedThread = nullptr;
+		static inline std::mutex mtx;
+		static inline std::queue<std::function<void()>> requests;
+		static inline std::condition_variable cv;
 
 	public:
 		static GraphicsState* CreateFrame() { return addRequest(&Interface::internalCreateFrame).get(); }
@@ -194,14 +200,6 @@ namespace GraphicsInterface
 		static void internalProcessInputText(std::wstring currentInputText, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate, int IMECursorPos, bool IMEComposing, bool ManualInputFlag);
 		static void internalClearTextInput();
 		static void internalRotateControl(int ID, float rotation);
-
-		static std::vector<GUIText> CreateInputLine(std::wstring currentInputText, Util::Vector2 Pos, bool ManualInputFlag);
-
-
-		static inline std::thread* dedicatedThread = nullptr;
-		static inline std::mutex mtx;
-		static inline std::queue<std::function<void()>> requests;
-		static inline std::condition_variable cv;
 
 	};
 

@@ -75,7 +75,7 @@ namespace Input
 		InputResultType ActionType = InputResultType::NONE;
 		int mouseWheelDelta = 0;
 		std::wstring PrefillInputText;
-		int vk_code = -1;
+		std::vector<int> vk_codes = { { -1} };
 		Util::Vector2 MousePos;
 		Util::Vector2 MouseDelta;
 		bool InputTimedOut = false;
@@ -126,7 +126,7 @@ namespace Input
 		void GetInputAsync(std::shared_ptr<std::promise<InputEvent>> sharedPromise, std::atomic<bool>* sharedTrigger);
 
 	public:
-		InputAwaiter(InputType type, int64_t interupt, bool allowCancel, int64_t timeout, std::vector<int> keys = {}) : ExpectedType(type), Interupt(interupt), AllowCancel(allowCancel), Timeout(timeout), ExpectedKeys(keys)
+		InputAwaiter(InputType type, int64_t interupt, bool allowCancel, int64_t timeout, std::vector<std::vector<int>> keys = {}) : ExpectedType(type), Interupt(interupt), AllowCancel(allowCancel), Timeout(timeout), ExpectedKeys(keys)
 		{
 			UserAction.Awaiter = type;
 			std::lock_guard<std::mutex> lock(mtx);
@@ -147,7 +147,7 @@ namespace Input
 		int64_t Timeout;
 		int64_t Interupt;
 		InputType ExpectedType = InputType::NONE;
-		std::vector<int> ExpectedKeys;
+		std::vector<std::vector<int>> ExpectedKeys;
 		InputEvent UserAction = {};
 		bool AllowCancel = true;
 		void SetAwaiter()
@@ -214,6 +214,102 @@ namespace Input
 			std::lock_guard<std::mutex> lock(mtx);
 			return std::vector<InputAwaiter*>(Awaiters);
 		}
+	};
+
+	class KeyboardMouseState
+	{
+	public:
+		static void CaptureInput()
+		{
+			keysPressed.clear();
+			keysDown.clear();
+			keysReleased.clear();
+
+			for (int key = 0; key < 256; key++)
+			{
+				prevKeyStates[key] = keyStates[key];
+				keyStates[key] = (GetAsyncKeyState(key) & 0x8000) != 0;
+				if (IsControlDown(key) && key > 7) { keysDown.push_back(key); }
+				if (IsControlFreshlyPressed(key) && key > 7) { keysPressed.push_back(key); }
+				if (IsControlReleased(key) && key > 7) { keysReleased.push_back(key); }
+			}
+		}
+
+		static bool IsControlFreshlyPressed(int VK_keycode)
+		{
+			return keyStates[VK_keycode] && !prevKeyStates[VK_keycode];
+		}
+
+		static bool IsControlReleased(int VK_keycode)
+		{
+			return !keyStates[VK_keycode] && prevKeyStates[VK_keycode];
+		}
+
+		static bool IsControlDown(int VK_keycode)
+		{
+			return keyStates[VK_keycode];
+		}
+
+		static std::vector<int> GetKeysPressed()
+		{
+			return keysPressed;
+		}
+
+		static std::vector<int> GetKeysDown()
+		{
+			return keysDown;
+		}
+
+		static std::vector<int> GetKeysReleased()
+		{
+			return keysReleased;
+		}
+
+		static void UpdateMouseWheel(int wheelDelta)
+		{
+			mouseWheelDelta += wheelDelta;
+		}
+
+		static void UpdateMouseMove(int x, int y)
+		{
+			Util::Vector2 newMousePos(static_cast<float>(x), static_cast<float>(y));
+			mouseDelta += (newMousePos - mousePos);
+			mousePos = newMousePos;
+		}
+
+		static void ResetInput()
+		{
+			keysPressed.clear();
+			keysDown.clear();
+			keysReleased.clear();
+			mouseWheelDelta = 0;
+			mouseDelta = Util::Vector2(0);
+		}
+
+		static int GetLastMouseWheelDelta()
+		{
+			return mouseWheelDelta / WHEEL_DELTA;
+		}
+
+		static Util::Vector2 GetMousePos()
+		{
+			return mousePos;
+		}
+
+		static Util::Vector2 GetLastMouseDelta()
+		{
+			return mouseDelta;
+		}
+
+	private:
+		static inline bool keyStates[256] = { false };
+		static inline Util::Vector2 mousePos = Util::Vector2();
+		static inline bool prevKeyStates[256] = { false };
+		static inline Util::Vector2 mouseDelta = Util::Vector2();
+		static inline int mouseWheelDelta = 0;
+		static inline std::vector<int> keysPressed; //key that is down in the current frame but was up in the previous frame.Captures freshly pressed keys
+		static inline std::vector<int> keysReleased;  //key that was down in the previous frame but is now up.  Captures freshly released keys.
+		static inline std::vector<int> keysDown; //Key that is down regardless of previous state.  Captures keys being held down. 
 	};
 
 
