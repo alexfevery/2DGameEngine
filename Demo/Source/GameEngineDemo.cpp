@@ -1,24 +1,8 @@
 #include "GameEngineDemo.h"
+#include "Physics2D.h"
 
 using namespace Input;
 
-static Util::Vector2 velocity = Util::Vector2(0.0025f, 0.0025f);
-static float rotation = 0;
-
-void MoveGirl(int Image1)
-{
-	Util::RECTF rect = Interface::GetControlRect(Image1);
-	Util::Vector2 pos = rect.GetPosition();
-	if (rect.Right >= 1) { velocity.X = -.005; }
-	else if (rect.Left <= 0) { velocity.X = .005; }
-	if (rect.Top <= 0) { velocity.Y = .005; }
-	else if (rect.Bottom >= 1) { velocity.Y = -.005; }
-	pos += velocity;
-	Interface::MoveControl(Image1, pos);
-	rotation += 0.01f;
-	if (rotation > 1.0f) { rotation = rotation-1.0f; }
-	Interface::RotateControl(Image1,rotation);
-}
 
 void DemoMenu::Show()
 {
@@ -36,11 +20,28 @@ void DemoMenu::Show()
 	Interface::RotateSelectableMenuItemsToValue(Option2SelectionID);
 	Interface::SetGUISelection(Option2SelectionID);
 
-	int Image1 = Interface::AddGUIImage(L"girl.png", Util::Vector2(0.5, 0.5), .5f);
-
+	
+	int GirlSelectionId = 5;
+	int Image1 = Interface::AddGUIImage(L"girl.png", Util::Vector2(0.5f, 0.5f), .5f, GirlSelectionId);
+	Util::RECTF physicsRect = Interface::GetPhsyicsRect(Image1).Resize(.9f,true);
+	GameWorld world = GameWorld(RenderBuffer::BufferSize.X, RenderBuffer::BufferSize.Y);
+	PhysicsBox girlBox = PhysicsBox(physicsRect, Util::Vector2(0.0025f, 0.0025f), 0,.5f);
 	InputAwaiter a0 = InputAwaiter(InputType::IDLE, 0, false, 0);
-	a0.SetCallback([this, Image1](InputEvent& event) {
-		MoveGirl(Image1);
+	a0.SetCallback([this, Image1, &world,&girlBox](InputEvent& event) {
+		girlBox.RunPhysicsStep(world);
+		Interface::SetControlCenter(Image1,girlBox.GetPosition());
+		Interface::RotateControl(Image1, girlBox.GetOrientation());
+		event.SelectedIndex = Interface::GetMouseHoverIndex(event.MousePos);
+		if (event.SelectedIndex != -1)
+		{
+			Interface::SetGUISelection(event.SelectedIndex);
+			if (this->GetMaintainSelectionAfterMouseHover()) { Interface::RotateSelectableMenuItemsToValue(event.SelectedIndex); }
+		}
+		else
+		{
+			Interface::SetGUISelection(Interface::GetCurrentSelectableMenuItem());
+		}
+		G1->SetCursorSelectableHovered(event.SelectedIndex != -1);  //Change cursor to hand if over selectable item otherwise arrow.
 		return false;
 		});
 
@@ -52,7 +53,11 @@ void DemoMenu::Show()
 			Interface::SetGUISelection(event.SelectedIndex);
 			if (this->GetMaintainSelectionAfterMouseHover()) { Interface::RotateSelectableMenuItemsToValue(event.SelectedIndex); }
 		}
-		else { Interface::SetGUISelection(Interface::GetCurrentSelectableMenuItem()); }
+		else 
+		{ 
+			Interface::SetGUISelection(Interface::GetCurrentSelectableMenuItem()); 
+		}
+		G1->SetCursorSelectableHovered(event.SelectedIndex != -1);  //Change cursor to hand if over selectable item otherwise arrow.
 		return false;
 		});
 
@@ -89,9 +94,13 @@ void DemoMenu::Show()
 		{
 			SetMenuResult(L"Exit Selected");
 		}
-		else
+		else if(UserResponse.SelectedIndex == Option1SelectionID)
 		{
 			SetMenuResult(L"Option 1 selected");
+		}
+		else if (UserResponse.SelectedIndex == GirlSelectionId)
+		{
+			SetMenuResult(L"Girl Selected");
 		}
 		return;
 	}
@@ -133,15 +142,21 @@ void Close()
 
 int main()
 {
+	std::wcout << L"Welcome to 2D Game Engine Demo" << std::endl;
+	std::wcout << L"Creating Game Window" << std::endl;
 	G1 = new GameWindow2D(.5, .5);
 	G1->onLoad = []() { Load(); };
 	G1->onResize = [](int width, int height) { Resize(width, height); };
 	G1->onUpdateFrame = [](double deltaTime) { Update(deltaTime); };
 	G1->onRenderFrame = []() { Render(); };
 	G1->onClose = []() {Close(); };
+	std::wcout << L"Initializing game window at 60fps" << std::endl;
 	G1->Run(60, false);
+	std::wcout << L"Starting graphics rendering engine" << std::endl;
 	Direct2DStartup(G1->m_hwnd);
+	std::wcout << L"Opening window" << std::endl;
 	G1->ShowWindow(true);
+	std::wcout << L"Game window now open and rendering..." << std::endl;
 	DemoMenu m1 = DemoMenu(L"2D Game Engine Demo");
 	try
 	{
@@ -150,9 +165,16 @@ int main()
 	}
 	catch (const CloseWindowException&)
 	{
-		std::wcout << L"Window closed (X button clicked)" << std::endl;
+		std::wcout << L"Window closed by user (X button clicked)" << std::endl;
 	}
-	G1->CloseWindow();
+	if (G1->WindowOpen)
+	{
+		std::wcout << L"Closing game window" << std::endl;
+		G1->CloseWindow();
+	}
+	std::wcout << L"Shutting down rendering engine" << std::endl;
 	Direct2DShutdown();
+	std::wcout << L"2D Game Engine Demo has completed" << std::endl;
+	std::cin.get();
 	return 0;
 }
