@@ -54,14 +54,13 @@ public:
 	std::function<void()> onRenderFrame;
 	std::function<void()> onClose;
 
-	CursorType currentCursor = CT_ARROW;
-
 	TrayIconData trayIconData;
 
 	std::condition_variable cv;
 	std::mutex cv_m;
 	std::atomic<bool> RunWindow {false};
 
+	bool DestroyWindowFlag = false;
 	bool WindowOpen = false;
 	int showWindowCommand = SW_SHOW;
 	DWORD windowStyle = WS_OVERLAPPEDWINDOW;
@@ -69,7 +68,19 @@ public:
 
 	int TargetFrameRate = 60;
 	int FrameRate = 0;
+	LPCWSTR currentCursor = IDC_ARROW;
+	bool cursorEnabled = true;
 
+	void EnableCursor(bool enable) 
+	{
+		cursorEnabled = enable;
+		while ((enable && ShowCursor(TRUE) < 0) || (!enable && ShowCursor(FALSE) >= 0));
+	}
+	void SetCursorSelectableHovered(bool enable)
+	{
+		if (enable) { currentCursor = IDC_HAND; }
+		else { currentCursor = IDC_ARROW; }
+	}
 	void updateTrayIconData(HICON hIcon, std::wstring title, std::vector<std::wstring> menuItems, std::function<void(int)> callback);
 	void ShowWindow(bool Centered);
 	void HideWindow();

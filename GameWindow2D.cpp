@@ -112,8 +112,35 @@ LRESULT CALLBACK ProcessWindowMessage(HWND m_hwnd, UINT msg, WPARAM wParam, LPAR
 		}
 		if (lParam == 1029) { pThis->trayIconData.callback(-1); }
 		break;
+	case WM_SETCURSOR:
+		if (!pThis->cursorEnabled) {
+			SetCursor(NULL);
+			return TRUE;
+		}
+		else
+		{
+		if (LOWORD(lParam) == HTCLIENT)
+		{
+			SetCursor(LoadCursorW(NULL, pThis->currentCursor));
+		}
+		else { return DefWindowProc(m_hwnd, msg, wParam, lParam); }
+		return 1;
+		}
+		break;
 	case WM_CLOSE:
+		if (pThis->DestroyWindowFlag)
+		{
+			DestroyWindow(pThis->m_hwnd);
+			break;
+		}
 		if (pThis->onClose) { pThis->onClose(); }
+		return 0;
+	case WM_DESTROY:
+		if (pThis->DestroyWindowFlag)
+		{
+			PostQuitMessage(0);
+			break;
+		}
 		return 0;
 	case WM_SIZE:
 	case WM_MOVE:
@@ -136,13 +163,6 @@ LRESULT CALLBACK ProcessWindowMessage(HWND m_hwnd, UINT msg, WPARAM wParam, LPAR
 			else { pThis->UpdateWindowSize(-1, -1); }
 		}
 		break;
-	case WM_SETCURSOR:
-		if (LOWORD(lParam) == HTCLIENT)
-		{
-			SetCursor(LoadCursor(NULL, pThis->currentCursor == CT_HAND ? IDC_HAND : IDC_ARROW));
-		}
-		else { return DefWindowProc(m_hwnd, msg, wParam, lParam); }
-		return 1;
 	case WM_TIMER:
 		if (pThis->onUpdateFrame) { pThis->onUpdateFrame(0.0); }
 		InvalidateRect(m_hwnd, NULL, TRUE);
@@ -278,6 +298,8 @@ void GameWindow2D::HideWindow()
 
 void GameWindow2D::CloseWindow()
 {
+	WindowOpen = false;
+	DestroyWindowFlag = true;
 	SendMessage(m_hwnd, WM_CLOSE, 0, 0);
 }
 

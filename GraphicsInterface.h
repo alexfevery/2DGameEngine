@@ -129,9 +129,10 @@ namespace GraphicsInterface
 		static void ChangeTextOpacity(int ID, float newValue) { addRequest(&Interface::internalChangeTextOpacity, ID, newValue).get(); }
 		static void ChangeTextColor(int ID, D2D1::ColorF newcolor) { addRequest(&Interface::internalChangeTextColor, ID, newcolor).get(); }
 		static Util::RECTF GetControlRect(int ID) { return addRequest(&Interface::internalGetControlRect, ID).get(); }
+		static Util::RECTF GetPhsyicsRect(int ID) { return addRequest(&Interface::internalGetPhysicsRect, ID).get(); }
 		static bool RemoveControl(int ID) { return addRequest(&Interface::internalRemoveControl, ID).get(); }
 		static void RemoveControls(std::vector<int> controls) { addRequest(&Interface::internalRemoveControls, std::move(controls)).get(); }
-		static void MoveControl(int ID, Util::Vector2 pos) { addRequest(&Interface::internalMoveControl, ID, pos).get(); }
+		static void SetControlCenter(int ID, Util::Vector2 newCenter) { addRequest(&Interface::internalSetControlCenter, ID, newCenter).get(); }
 		static void RotateControl(int ID, float rotation) { addRequest(&Interface::internalRotateControl, ID, rotation).get(); }
 		static std::vector<GUIText> CreateGUIText(std::wstring text, int fontModifier, D2D1::ColorF color, Util::Vector2 position, int selectionIndex, D2D1::ColorF selectionColor, D2D1::ColorF highlightColor, bool silhouette, int textID = -1) { return addRequest(&Interface::internalCreateGUIText, std::move(text), fontModifier, color, position, selectionIndex, selectionColor, highlightColor, silhouette, textID).get(); }
 		static std::vector<GUI*> GetGUIItemsByLayer(int layer) { return addRequest(&Interface::internalGetGUIItemsByLayer, layer).get(); }
@@ -175,7 +176,8 @@ namespace GraphicsInterface
 		static void internalChangeTextOpacity(int ID, float newValue);
 		static void internalChangeTextColor(int ID, D2D1::ColorF newcolor);
 		static Util::RECTF internalGetControlRect(int ID);
-		static void internalMoveControl(int ID, Util::Vector2 pos);
+		static Util::RECTF internalGetPhysicsRect(int ID);
+		static void internalSetControlCenter(int ID, Util::Vector2 newCenter);
 		static bool internalRemoveControl(int ID);
 		static void internalRemoveControls(std::vector<int> controls);
 		static std::vector<GUIText> internalCreateGUIText(std::wstring text, int fontModifier, D2D1::ColorF color, Util::Vector2 position, int selectionIndex, D2D1::ColorF selectionColor, D2D1::ColorF highlightColor, bool silhouette, int textID = -1);

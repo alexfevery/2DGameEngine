@@ -101,6 +101,10 @@ LRESULT CALLBACK Input::ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam
 			KeyboardMouseState::UpdateMouseMove(ptClient.x, ptClient.y);
 		}
 		break;
+	case WM_SETCURSOR:
+			PostMessage(GetParent(m_hwnd), msg, wParam, lParam);
+			return TRUE;
+		break;
 	case WM_LBUTTONDOWN:
 		SetFocus(hEdit);
 		break;
@@ -190,19 +194,23 @@ void Input::GetControls()
 		for (InputAwaiter* a1 : InputAwaiter::GetAwaiters())
 		{
 			if (!a1->IsSet()) { continue; }
-			if (a1->ExpectedType == InputType::TEXTENTRY && !IMEComposing)
+			if (a1->ExpectedType == InputType::TEXTENTRY)
 			{
-				if ((KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) && a1->AllowCancel) || KeyboardMouseState::IsControlFreshlyPressed(VK_RETURN))
+				TextInputInProgress = true;
+				if (!IMEComposing)
 				{
-					if (IMEActivated)
+					if ((KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) && a1->AllowCancel) || KeyboardMouseState::IsControlFreshlyPressed(VK_RETURN))
 					{
-						IMEActivated = false;
-						continue;
+						if (IMEActivated)
+						{
+							IMEActivated = false;
+							continue;
+						}
+						a1->UserAction.vk_codes = { (KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) ? VK_ESCAPE : VK_RETURN) };
+						if (g_onEndTextEntryFunc) { SetInputText(g_onEndTextEntryFunc(GetInputText()), true, false); }
+						TextInputState::SetInputState(ProcessTextInput());
+						a1->TriggerInput(KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) ? InputResultType::INPUTCANCEL : InputResultType::TEXTSUBMIT);
 					}
-					a1->UserAction.vk_codes = { (KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) ? VK_ESCAPE : VK_RETURN) };
-					if (g_onEndTextEntryFunc) { SetInputText(g_onEndTextEntryFunc(GetInputText()), true, false); }
-					TextInputState::SetInputState(ProcessTextInput());
-					a1->TriggerInput(KeyboardMouseState::IsControlFreshlyPressed(VK_ESCAPE) ? InputResultType::INPUTCANCEL : InputResultType::TEXTSUBMIT);
 				}
 				continue;
 			}
@@ -270,7 +278,6 @@ void Input::GetControls()
 				}
 				continue;
 			}
-			if (a1->ExpectedType == InputType::TEXTENTRY) { TextInputInProgress = true; }
 
 			if (a1->ExpectedType == InputType::IDLE)
 			{

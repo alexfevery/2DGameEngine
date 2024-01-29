@@ -52,7 +52,7 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 	if (std::regex_search(text, colorMatch, colorPattern))
 	{
 		std::wstring inputText = text;
-		float horizontalPosition = textRect.GetPosition().X;
+		float horizontalPosition = textRect.GetTopLeft().X;
 
 		while (std::regex_search(inputText, colorMatch, colorPattern))
 		{
@@ -67,7 +67,7 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 
 			if (!beforeMatch.empty())
 			{
-				Util::RECTF beforeRect = GetStringRectN(beforeMatch, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetPosition().Y), false, true);
+				Util::RECTF beforeRect = GetStringRectN(beforeMatch, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false, true);
 				drawOperations.push_back(GUIText(textID, beforeMatch, beforeRect, color, fontModifierN, highlightColor, selectionColor, selectionIndex));
 				horizontalPosition += beforeRect.Width;
 			}
@@ -78,7 +78,7 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 				Tagcolor = GetColorCode(colorMarker);
 				if (Tagcolor.a != 0) { Tagcolor.a = color.a; }
 			}
-			Util::RECTF colorRect = GetStringRectN(colorText, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetPosition().Y), false, true);
+			Util::RECTF colorRect = GetStringRectN(colorText, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false, true);
 			drawOperations.push_back(GUIText(textID, colorText, colorRect, Tagcolor, fontModifierN, highlightColor, selectionColor, selectionIndex));
 			horizontalPosition += colorRect.Width;
 
@@ -87,12 +87,12 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 
 		if (!inputText.empty())
 		{
-			drawOperations.push_back(GUIText(textID, inputText, GetStringRectN(inputText, fontHeight, fontModifier, Util::Vector2(horizontalPosition, textRect.GetPosition().Y), false, true), color, fontModifier, highlightColor, selectionColor, selectionIndex));
+			drawOperations.push_back(GUIText(textID, inputText, GetStringRectN(inputText, fontHeight, fontModifier, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false, true), color, fontModifier, highlightColor, selectionColor, selectionIndex));
 		}
 	}
 	else
 	{
-		drawOperations.push_back(GUIText(textID, text, GetStringRectN(text, fontHeight, fontModifier, textRect.GetPosition(), false, true), color, fontModifier, highlightColor, selectionColor, selectionIndex));
+		drawOperations.push_back(GUIText(textID, text, GetStringRectN(text, fontHeight, fontModifier, textRect.GetTopLeft(), false, true), color, fontModifier, highlightColor, selectionColor, selectionIndex));
 	}
 	return drawOperations;
 }
@@ -126,7 +126,7 @@ int Interface::internalWriteFreeText(wstring text, D2D1::ColorF color, float Hor
 			Util::Vector2 offset = position - boundingRect.GetCenter();
 			for (auto& op : OPs)
 			{
-				op.SetRectN(Util::RECTF(Util::Vector2(op.GetRectN().GetPosition().X + offset.X, op.GetRectN().GetPosition().Y), op.GetRectN().GetSize()));
+				op.SetRectN(Util::RECTF(Util::Vector2(op.GetRectN().GetTopLeft().X + offset.X, op.GetRectN().GetTopLeft().Y), op.GetRectN().GetSize()));
 			}
 		}
 		id = OPs[0].GetID();
@@ -243,7 +243,31 @@ Util::RECTF Interface::internalGetControlRect(int ID)
 	return Util::RECTF();
 }
 
-void Interface::internalMoveControl(int ID, Util::Vector2 pos)
+Util::RECTF Interface::internalGetPhysicsRect(int ID)
+{
+	for (Layer& layer : layerStack)
+	{
+		for (GUI* item : internalGetGUIItemsByLayer(layer.layerLevel))
+		{
+			if (item->GetID() == ID) 
+			{ 
+				GUI_Image* image = dynamic_cast<GUI_Image*>(item);
+				if (image)
+				{
+					return image->GetPhysicsRect();
+				}
+				else
+				{
+					Util_LogErrorTerminate(L"Object is not a GUI_Image");
+				}
+			}
+		}
+	}
+	Util_LogErrorTerminate(L"ID not found");
+	return Util::RECTF();
+}
+
+void Interface::internalSetControlCenter(int ID, Util::Vector2 newCenter)
 {
 	bool found = false;
 	for (Layer& layer : layerStack)
@@ -253,7 +277,9 @@ void Interface::internalMoveControl(int ID, Util::Vector2 pos)
 			if (item->GetID() == ID) 
 			{ 
 				Util::RECTF rect = item->GetRectN();
-				rect.SetPosition(pos);
+				Util::Vector2 size = rect.GetSize();
+				Util::Vector2 newTopLeft = newCenter - size / 2.0f;
+				rect.SetPositionTopLeft(newTopLeft);
 				item->SetRectN(rect);
 				found = true;
 			}
@@ -608,7 +634,7 @@ vector<GUIText> Interface::CreateInputLine(wstring currentInputText, Util::Vecto
 {
 	vector<GUIText> InputControls;
 	Util::RECTF inputRect = GetStringRectN(currentInputText, fontHeight, 0, Pos, false, false);
-	if (CenterInput) { inputRect.SetPosition(GetTextAlignCenter(currentInputText, fontHeight, 0, inputRect.GetPosition())); }  //manually center aligned to prevent jumping back and forth as cursor blinks
+	if (CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(currentInputText, fontHeight, 0, inputRect.GetTopLeft())); }  //manually center aligned to prevent jumping back and forth as cursor blinks
 	wstring DisplayInputText = currentInputText;
 	if (g_altDisplayTextFunc) { DisplayInputText = g_altDisplayTextFunc(DisplayInputText); }
 	if (ManualInputFlag) { DisplayInputText = L"[" + DisplayInputText + L"](TP)"; }
@@ -665,8 +691,8 @@ void Interface::internalProcessInputText(wstring currentInputText, wstring IMEco
 	{
 		imecursorCompRect = GetStringRectN(CombinedCursor, fontHeight, 0, currentPosition, false, false);
 	}
-	if (CenterInput) { inputRect.SetPosition(GetTextAlignCenter(Combined, fontHeight, 0, inputRect.GetPosition())); }  //manually center aligned to prevent jumping back and forth as cursor blinks
-	imecursorCompRect.SetPosition(inputRect.GetPosition());
+	if (CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(Combined, fontHeight, 0, inputRect.GetTopLeft())); }  //manually center aligned to prevent jumping back and forth as cursor blinks
+	imecursorCompRect.SetPositionTopLeft(inputRect.GetTopLeft());
 	wstring DisplayInputText = currentInputText;
 	if (g_altDisplayTextFunc) { DisplayInputText = g_altDisplayTextFunc(DisplayInputText); }
 	if (ManualInputFlag) { DisplayInputText = L"[" + DisplayInputText + L"](TP)"; }
@@ -680,8 +706,8 @@ void Interface::internalProcessInputText(wstring currentInputText, wstring IMEco
 		for (int i = 0; i < guiCandidateTexts.size(); i++)
 		{
 			Util::RECTF rect = GetStringRectN(guiCandidateTexts[i], fontHeight, 0, Util::Vector2(inputRect.Right, currentPosition.Y + LineHeight * (i + 1)), false, false);
-			if (i == SelectedCandidate) { Util::VectorAddRange(InputControls, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetPosition(), -1, WHITE, GREEN, false, -1)); }
-			else { Util::VectorAddRange(InputControls, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetPosition(), -1, WHITE, TRANSPARENT_COLOR, false, -1)); }
+			if (i == SelectedCandidate) { Util::VectorAddRange(InputControls, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetTopLeft(), -1, WHITE, GREEN, false, -1)); }
+			else { Util::VectorAddRange(InputControls, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetTopLeft(), -1, WHITE, TRANSPARENT_COLOR, false, -1)); }
 			MaxLength = max(MaxLength, rect.Width);
 		}
 		GUIBox b1 = GUIBox(BLACK, Util::RECTF(inputRect.Right, GetTightStringRectN(inputRect).Top, inputRect.Right + MaxLength, currentPosition.Y + LineHeight * (guiCandidateTexts.size() + 1.3f)));

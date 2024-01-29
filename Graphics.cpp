@@ -29,35 +29,68 @@ Util::RECTF NormalizedToPx(Util::RECTF Rect)
 bool GUIText::IsHovered(Util::Vector2 MousePosClient)
 {
 	Util_Assert(RenderEngineInitialized, L"Render engine not initialized");
-	return NormalizedToPx(RectN).Contains(OutputBuffer::WindowPosToRenderBufferPos(MousePosClient));
+	return Util::RotatedRECTF(NormalizedToPx(RectN), rotation).Contains(OutputBuffer::WindowPosToRenderBufferPos(MousePosClient));
 }
 
 bool GUIBox::IsHovered(Util::Vector2 MousePosClient)
 {
 	Util_Assert(RenderEngineInitialized, L"Render engine not initialized");
-	return NormalizedToPx(RectN).Contains(OutputBuffer::WindowPosToRenderBufferPos(MousePosClient));
+	return Util::RotatedRECTF(NormalizedToPx(RectN), rotation).Contains(OutputBuffer::WindowPosToRenderBufferPos(MousePosClient));
 }
 
-bool GUI_Image::IsHovered(Util::Vector2 MousePosClient) //TO DO: INCORPORATE IMAGE ROTATION INTO HOVER CHECK
+bool GUI_Image::IsHovered(Util::Vector2 MousePosClient)
 {
 	Util_Assert(RenderEngineInitialized, L"Render engine not initialized");
 	if (!RenderBuffer::MouseHoverBitmaps[imagePath]) { return false; }
-	Util::RECTF PixelRect = NormalizedToPx(RectN);
 	Util::Vector2 mousePos = OutputBuffer::WindowPosToRenderBufferPos(MousePosClient);
-	Util::Vector2 rectCenter = PixelRect.GetCenter();
-	
-	if (PixelRect.Contains(mousePos))
+	Util::RotatedRECTF transformed = Util::RotatedRECTF(NormalizedToPx(RectN), rotation);
+	if (transformed.Contains(mousePos))
 	{
-		Util::Vector2 temp = PixelRect.GetPosition();
+		Util::Vector2 temp = transformed.GetTopLeft();
 		mousePos -= temp;
+		mousePos = Util::Vector2::RotatePoint(mousePos, Util::Vector2(0, 0), -rotation);
 		Gdiplus::Color color;
 		if (RenderBuffer::MouseHoverBitmaps[imagePath]->GetPixel(static_cast<INT>(std::round(mousePos.X)), static_cast<INT>(std::round(mousePos.Y)), &color) == Gdiplus::Status::Ok)
 		{
 			if (color.GetA() != 0) { return true; }
 		}
-
 	}
 	return false;
+}
+
+Util::RECTF GUI_Image::GetPhysicsRect()
+{
+	Util_Assert(RenderEngineInitialized, L"Render engine not initialized");
+	Gdiplus::Bitmap* bitmap = RenderBuffer::MouseHoverBitmaps[imagePath];
+
+	int left = static_cast<int>(bitmap->GetWidth()), right = 0, top = static_cast<int>(bitmap->GetWidth()), bottom = 0;
+	Gdiplus::Color pixelColor;
+	for (int x = 0; x < static_cast<int>(bitmap->GetWidth()); ++x)
+	{
+		for (int y = 0; y < static_cast<int>(bitmap->GetHeight()); ++y)
+		{
+			if (bitmap->GetPixel(x, y, &pixelColor) == Gdiplus::Status::Ok)
+			{
+				int test = pixelColor.GetA();
+				if (test > 10)
+				{
+					if (x < left) { left = x; }
+					if (x > right) { right = x; }
+					if (y < top) { top = y; }
+					if (y > bottom) { bottom = y; }
+				}
+			}
+		}
+	}
+
+	if (left > right || top > bottom) { return Util::RECTF(0, 0, 0, 0); } // No non-transparent pixels found
+
+	Util::Vector2 topLeft = Util::Vector2(left, top);
+	Util::Vector2 bottomRight = Util::Vector2(right, bottom);
+	topLeft = RectN.GetTopLeft()+PxToNormalized(topLeft);
+	bottomRight = RectN.GetTopLeft() + PxToNormalized(bottomRight);
+
+	return Util::RECTF(topLeft.X, topLeft.Y, bottomRight.X, bottomRight.Y);
 }
 
 void Direct2DShutdown()
@@ -158,8 +191,9 @@ void RenderFrame(GraphicsState* Frame)
 			Frame->AllGUIItems[i]->Render(RenderBuffer::RenderTarget);
 		}
 		Util_D2DCall(RenderBuffer::RenderTarget->EndDraw());
-		ID2D1Bitmap* RenderBufferImage;
+		ID2D1Bitmap* RenderBufferImage = nullptr;
 		Util_D2DCall(RenderBuffer::RenderTarget->GetBitmap(&RenderBufferImage));
+		Util_Assert(RenderBufferImage != nullptr, L"Error: Bitmap was null");
 		OutputBuffer::RenderTarget->BeginDraw();
 		OutputBuffer::RenderTarget->Clear(ColorF(ColorF::Black));
 		OutputBuffer::RenderTarget->DrawBitmap(RenderBufferImage, OutputBuffer::GetOutputBufferRect());
@@ -198,7 +232,7 @@ void GUIBox::Render(ID2D1RenderTarget* Target)
 	ID2D1SolidColorBrush* pBrush = nullptr;
 	Util_D2DCall(Target->CreateSolidColorBrush(DrawColor, &pBrush));
 	Util_Assert(pBrush, L"pBrush was null.");
-	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation * 360.0f, rect.GetCenter()));
+	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation, rect.GetCenter()));
 	if (borderWidth == 0) { Target->FillRectangle(rect, pBrush); }
 	else { Target->DrawRectangle(rect, pBrush, static_cast<FLOAT>(borderWidth)); }
 	Target->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -210,8 +244,11 @@ void GUI_Image::Render(ID2D1RenderTarget* Target)
 {
 	if (RenderBuffer::Bitmaps[imagePath] == nullptr) { LoadGUIImage(imagePath); }
 	Util::RECTF rect = Selected ? GetRectP().Resize(1.2f, true) : GetRectP();
-	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation * 360.0f, rect.GetCenter()));
+	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation, rect.GetCenter()));
 	Target->DrawBitmap(RenderBuffer::Bitmaps[imagePath], rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+	//ID2D1SolidColorBrush* pBrush = nullptr;
+	//Util_D2DCall(Target->CreateSolidColorBrush(RED, &pBrush));
+	//Target->DrawRectangle(rect, pBrush, static_cast<FLOAT>(3));
 	Target->SetTransform(D2D1::Matrix3x2F::Identity());
 }
 
@@ -219,7 +256,7 @@ void GUI_Image::Render(ID2D1RenderTarget* Target)
 void GUIText::Render(ID2D1RenderTarget* Target)
 {
 	Util::RECTF rect = GetRectP();
-	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation * 360.0f, rect.GetCenter()));
+	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation, rect.GetCenter()));
 
 	if (highlightColor.a != 0)
 	{

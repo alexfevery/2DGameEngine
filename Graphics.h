@@ -43,6 +43,7 @@ inline std::wstring CursorDesign = L"▌";
 
 const D2D1::ColorF RED = D2D1::ColorF(205.0f / 255.0f, 49.0f / 255.0f, 49.0f / 255.0f);
 const D2D1::ColorF GREEN = D2D1::ColorF(30.0f / 255.0f, 230.0f / 255.0f, 30.0f / 255.0f);
+const D2D1::ColorF TRANSPARENTGREEN = D2D1::ColorF(30.0f / 255.0f, 230.0f / 255.0f, 30.0f / 255.0f,.35f);
 const D2D1::ColorF DARK_GREEN = D2D1::ColorF(15.0f / 255.0f, 115.0f / 255.0f, 15.0f / 255.0f);
 const D2D1::ColorF BLUE = D2D1::ColorF(135.0f / 255.0f, 206.0f / 255.0f, 250.0f / 255.0f);
 const D2D1::ColorF WHITE = D2D1::ColorF(1.0f, 1.0f, 1.0f);
@@ -89,7 +90,6 @@ struct BackgroundImage
 class RenderBuffer {
 public:
 	static inline Util::Vector2 BufferSize = Util::Vector2(3840, 2160);
-
 	static inline std::map<std::wstring, ID2D1Bitmap*> Bitmaps;
 	static inline std::map<std::wstring, Gdiplus::Bitmap*> MouseHoverBitmaps;
 	static inline ID2D1BitmapRenderTarget* RenderTarget = nullptr;
@@ -139,7 +139,7 @@ public:
 		Util::Vector2 Ratio = rect.GetSize() / RenderBuffer::BufferSize;
 
 		// Transform mouse position to bitmap's coordinate system
-		Util::Vector2 TransformedPos = (DpiScaledPos - rect.GetPosition()) / Ratio;
+		Util::Vector2 TransformedPos = (DpiScaledPos - rect.GetTopLeft()) / Ratio;
 		return TransformedPos;
 	}
 
@@ -204,6 +204,7 @@ struct GUI_Image : public GUI
 	}
 
 	bool IsHovered(Util::Vector2 MousePosClient) override;
+	Util::RECTF GetPhysicsRect();
 	ControlType GetType() const override { return ControlType::GUIImage; }
 	void Render(ID2D1RenderTarget* Target) override;
 
