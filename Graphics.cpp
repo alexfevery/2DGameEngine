@@ -26,6 +26,74 @@ Util::RECTF NormalizedToPx(Util::RECTF Rect)
 }
 
 
+Util::RECTF OutputBuffer::GetOutputBufferRect()
+{
+	// Get DPI for the window
+	float dpi = static_cast<float>(GetDpiForWindow(TargetWindow));
+	Util::Vector2 WindowDimensions = Util::GetClientRect(TargetWindow).GetSize();
+	float refdpi = 96.0f;
+
+	// Calculate scaling ratios separately for width and height
+	float widthRatio = WindowDimensions.X * refdpi / RenderBuffer::BufferSize.X / dpi;
+	float heightRatio = WindowDimensions.Y * refdpi / RenderBuffer::BufferSize.Y / dpi;
+	float minRatio = (std::min)(widthRatio, heightRatio); // Use std::min to find the smaller ratio
+
+	// Calculate scaled dimensions separately for width and height
+	int scaledWidth = static_cast<int>(RenderBuffer::BufferSize.X * minRatio);
+	int scaledHeight = static_cast<int>(RenderBuffer::BufferSize.Y * minRatio);
+
+	// Calculate the start position for the image to be centered, separately for x and y
+	float startX = (WindowDimensions.X * refdpi / dpi - scaledWidth) / 2.0f;
+	float startY = (WindowDimensions.Y * refdpi / dpi - scaledHeight) / 2.0f;
+
+	// Create and return the final Rect
+	return Util::RECTF(startX, startY, startX + scaledWidth, startY + scaledHeight);
+}
+
+Util::Vector2 OutputBuffer::WindowPosToRenderBufferPos(Util::Vector2 PosClient)
+{
+	float dpi = static_cast<float>(GetDpiForWindow(TargetWindow));
+	// Scale cursor position with DPI
+	Util::Vector2 DpiScaledPos = PosClient * 96.0f / dpi;
+
+	// Get the scaled and centered Rect
+	Util::RECTF rect = OutputBuffer::GetOutputBufferRect();
+	if (rect.Right - rect.Left == 0 || rect.Bottom - rect.Top == 0) { return Util::Vector2(0, 0); }
+	// Calculate scale ratios
+	Util::Vector2 Ratio = rect.GetSize() / RenderBuffer::BufferSize;
+
+	// Transform mouse position to bitmap's coordinate system
+	Util::Vector2 TransformedPos = (DpiScaledPos - rect.GetTopLeft()) / Ratio;
+	return TransformedPos;
+}
+
+
+
+GUI_Image::GUI_Image(const std::wstring& imagePath, Util::Vector2 pos, float size, int SelectionIndex) : GUI(Util::RECTF(pos), SelectionIndex), imagePath(imagePath), size(size)
+{
+	Gdiplus::Bitmap originalBitmap = Gdiplus::Bitmap(imagePath.c_str());
+	Gdiplus::Bitmap* resizedBitmap = new Gdiplus::Bitmap(static_cast<INT>(originalBitmap.GetWidth() * size), static_cast<INT>(originalBitmap.GetHeight() * size), originalBitmap.GetPixelFormat());
+	Gdiplus::Graphics graphics(resizedBitmap);
+	graphics.DrawImage(&originalBitmap, 0, 0, resizedBitmap->GetWidth(), resizedBitmap->GetHeight());
+	RenderBuffer::MouseHoverBitmaps[imagePath] = resizedBitmap;
+	Util::Vector2 pixelSizeNCenter = PxToNormalized(Util::Vector2(static_cast<float>(resizedBitmap->GetWidth()), static_cast<float>(resizedBitmap->GetHeight()))) / 2.0f;
+	RectN = Util::RECTF(RectN.Left - pixelSizeNCenter.X, RectN.Top - pixelSizeNCenter.Y, RectN.Left + pixelSizeNCenter.X, RectN.Top + pixelSizeNCenter.Y);
+}
+
+void GUI_Image::DeleteImage()
+{
+	delete RenderBuffer::MouseHoverBitmaps[imagePath];
+	RenderBuffer::MouseHoverBitmaps.erase(imagePath);
+	RenderBuffer::Bitmaps[imagePath]->Release();
+	RenderBuffer::Bitmaps.erase(imagePath);
+}
+
+bool GUI_InputBox::IsHovered(Util::Vector2 MousePosClient)
+{
+	Util_Assert(RenderEngineInitialized, L"Render engine not initialized");
+	return Util::RotatedRECTF(NormalizedToPx(RectN), rotation).Contains(OutputBuffer::WindowPosToRenderBufferPos(MousePosClient));
+}
+
 bool GUIText::IsHovered(Util::Vector2 MousePosClient)
 {
 	Util_Assert(RenderEngineInitialized, L"Render engine not initialized");
@@ -146,10 +214,9 @@ void CreateBuffers(HWND handle)
 {
 	if (!RenderEngineInitialized) { return; }
 	ReleaseBuffers();  // Clear existing buffers
-	OutputBuffer::WindowHandle = handle;
-	OutputBuffer::CurrentWidth = static_cast<int>(Util::GetClientRect(handle).Width);
-	OutputBuffer::CurrentHeight = static_cast<int>(Util::GetClientRect(handle).Height);
-	Util_D2DCall(pD2DFactory->CreateHwndRenderTarget(RenderTargetProperties(), HwndRenderTargetProperties(handle, SizeU(OutputBuffer::CurrentWidth, OutputBuffer::CurrentHeight)), &OutputBuffer::RenderTarget));
+	OutputBuffer::TargetWindow = handle;
+	Util::Vector2 WindowDimensions = Util::GetClientRect(handle).GetSize();
+	Util_D2DCall(pD2DFactory->CreateHwndRenderTarget(RenderTargetProperties(), HwndRenderTargetProperties(handle, SizeU(static_cast<int>(WindowDimensions.X), static_cast<int>(WindowDimensions.Y))), &OutputBuffer::RenderTarget));
 	Util_D2DCall(OutputBuffer::RenderTarget->CreateCompatibleRenderTarget(SizeF(RenderBuffer::BufferSize.X, RenderBuffer::BufferSize.Y), &RenderBuffer::RenderTarget));
 }
 
@@ -216,12 +283,30 @@ void Direct2DStartup(HWND hwnd)
 	CreateBuffers(hwnd);
 }
 
+GUI::GUI(Util::RECTF rect, int selectionIndex) : ID(++counter), SelectionIndex(selectionIndex), RectN(rect)
+{
+	if (counter > 999999) { counter = 0; }
+}
+
+int GUI::GetGroupID()
+{
+	counter++;
+	if (counter > 999999) { counter = 0; }
+	return counter;
+}
+
 void DrawBackground(ID2D1RenderTarget* Target, BackgroundImage backgroundImage, D2D1::ColorF backgroundColor)
 {
 	if (backgroundImage.imagePath.empty()) { return; }
 	Target->SetTransform(D2D1::Matrix3x2F::Identity());
 	if (RenderBuffer::Bitmaps[backgroundImage.imagePath] == nullptr) { LoadGUIImage(backgroundImage.imagePath); }
 	Target->DrawBitmap(RenderBuffer::Bitmaps[backgroundImage.imagePath], NormalizedToPx(Util::RECTF(0, 0, 1, 1)), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+}
+
+
+GUIBox::GUIBox(D2D1::ColorF color, Util::RECTF rect, int width, int selectionindex, D2D1::ColorF selectioncolor): GUI(rect, selectionindex), color(color), borderWidth(width), selectionColor(selectioncolor)
+{
+
 }
 
 void GUIBox::Render(ID2D1RenderTarget* Target)
@@ -239,6 +324,25 @@ void GUIBox::Render(ID2D1RenderTarget* Target)
 	pBrush->Release();
 }
 
+void GUI_InputBox::Render(ID2D1RenderTarget* Target)
+{
+	Util::RECTF rect = GetRectP();
+	Target->SetTransform(D2D1::Matrix3x2F::Rotation(rotation, rect.GetCenter()));
+	if (InputBox) { InputBox->Render(Target); }
+	for (int i = 0; i < GUITexts.size(); i++)
+	{
+		GUITexts[i].Render(Target);
+	}
+	if (Cursor) { Cursor->Render(Target); }
+	if (IMEBox) { IMEBox->Render(Target); }
+	for (int i = 0; i < IMETextItems.size(); i++)
+	{
+		IMETextItems[i].Render(Target);
+	}
+	Target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+
 
 void GUI_Image::Render(ID2D1RenderTarget* Target)
 {
@@ -252,6 +356,11 @@ void GUI_Image::Render(ID2D1RenderTarget* Target)
 	Target->SetTransform(D2D1::Matrix3x2F::Identity());
 }
 
+GUIText::GUIText(int guiID, const std::wstring& t, const Util::RECTF& r, const D2D1::ColorF& c, const int& f, const D2D1::ColorF& hc, const D2D1::ColorF& sc, const int index): GUI(r, index), text(t), color(c), fontModifier(f), highlightColor(hc), selectionColor(sc)
+{
+	if (guiID != -1) { ID = guiID; }
+}
+
 
 void GUIText::Render(ID2D1RenderTarget* Target)
 {
@@ -262,7 +371,7 @@ void GUIText::Render(ID2D1RenderTarget* Target)
 	{
 		ID2D1SolidColorBrush* HighlightBrush = nullptr;
 		Util_D2DCall(Target->CreateSolidColorBrush(highlightColor, &HighlightBrush));
-		Target->FillRectangle(GetTightStringRectP(), HighlightBrush);
+		Target->FillRectangle(NormalizedToPx(GetTightStringRectN(RectN)), HighlightBrush);
 		HighlightBrush->Release();
 	}
 
@@ -297,27 +406,29 @@ void GUIText::Render(ID2D1RenderTarget* Target)
 Util::Vector2 GetTextDimensionsP(const wstring& text, int fontHeight, int fontModifier)
 {
 	DWRITE_TEXT_METRICS textMetrics = {};
+	IDWriteFactory* factoryInstance;
+	if (!pDWriteFactory) { Util_D2DCall(DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&factoryInstance))); }
+	else { factoryInstance = pDWriteFactory; }
 	IDWriteTextFormat* pTextFormat = nullptr;
-	Util_D2DCall(pDWriteFactory->CreateTextFormat(L"Yu Mincho", NULL, DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, static_cast<float>(fontHeight + fontModifier), L"", &pTextFormat));
+	Util_D2DCall(factoryInstance->CreateTextFormat(L"Yu Mincho", NULL, DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, static_cast<float>(fontHeight + fontModifier), L"", &pTextFormat));
 	Util_Assert(pTextFormat, L"pTextFormat was null.");
 	IDWriteTextLayout* pTextLayout = nullptr;
-	Util_D2DCall(pDWriteFactory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.length()), pTextFormat, 4000.0f, 2000.0f, &pTextLayout));
+	Util_D2DCall(factoryInstance->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.length()), pTextFormat, 4000.0f, 2000.0f, &pTextLayout));
 	Util_Assert(pTextLayout, L"pTextLayout was null.");
 	Util_D2DCall(pTextLayout->GetMetrics(&textMetrics));
+	if (factoryInstance != pDWriteFactory) { factoryInstance->Release(); }
 	pTextLayout->Release();
 	pTextFormat->Release();
 	return Util::Vector2(textMetrics.width, textMetrics.height);
 }
 
-Util::RECTF GetStringRectN(wstring text, int fontHeight, int fontModifier, Util::Vector2 originN, bool IncludeMarkup, bool IncludeCursor)
+Util::RECTF GetStringRectN(wstring text, int fontHeight, int fontModifier, Util::Vector2 originN, bool IncludeMarkup)
 {
 	if (!IncludeMarkup)
 	{
 		std::wregex colorPattern(L"\\[([^\\[\\]]*?)\\]\\((([RGBYCMW])?,?)?(([+-]\\d+))?\\)");
 		text = std::regex_replace(text, colorPattern, L"$1");
 	}
-	if (!IncludeCursor) { text = Util::ReplaceAllSubStr(text, CursorDesign, L""); }
-
 	Util::Vector2 textMetrics = GetTextDimensionsP(text, fontHeight, fontModifier);
 
 	int leadingSpaces = static_cast<int>(text.find_first_not_of(' '));
@@ -340,7 +451,7 @@ Util::RECTF GetStringRectN(wstring text, int fontHeight, int fontModifier, Util:
 	return textRect;
 }
 
-Util::RECTF GetSubStringRectN(wstring text, wstring substring, int fontHeight, int fontModifier, Util::Vector2 originN, bool IncludeMarkup, bool IncludeCursor, int StartIndex)
+Util::RECTF GetSubStringRectN(wstring text, wstring substring, int fontHeight, int fontModifier, Util::Vector2 originN, bool IncludeMarkup, int StartIndex)
 {
 	size_t pos = text.find(substring, StartIndex);
 
@@ -351,7 +462,7 @@ Util::RECTF GetSubStringRectN(wstring text, wstring substring, int fontHeight, i
 
 	Util::Vector2 subTextOriginN = Util::Vector2(originN.X + preTextMetricsN.X, originN.Y);
 
-	return GetStringRectN(text.substr(pos, substring.length()), fontHeight, fontModifier, subTextOriginN, IncludeMarkup, IncludeCursor);
+	return GetStringRectN(text.substr(pos, substring.length()), fontHeight, fontModifier, subTextOriginN, IncludeMarkup);
 }
 
 Util::RECTF GetTightStringRectN(Util::RECTF rectN, float percentage)
@@ -363,7 +474,7 @@ Util::RECTF GetTightStringRectN(Util::RECTF rectN, float percentage)
 
 Util::Vector2 GetTextAlignCenter(wstring text, int fontHeight, int fontmodifier, Util::Vector2 origin)
 {
-	Util::RECTF textRect = GetStringRectN(text, fontHeight, fontmodifier, origin, false, false);
+	Util::RECTF textRect = GetStringRectN(text, fontHeight, fontmodifier, origin, false);
 	return Util::Vector2(textRect.Left - textRect.Width / 2.0f, textRect.Top);
 }
 

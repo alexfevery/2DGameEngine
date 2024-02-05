@@ -24,13 +24,11 @@ namespace GraphicsInterface
 		bool isInteractive;
 		int layerLevel;
 		BackgroundImage backgroundImage = {};
+		std::vector<GUI_InputBox> InputBoxes;
 		std::vector<GUIText> GUITextItems;
 		std::vector<GUIBox> TextBoxes;
 		std::vector<GUI_Image> Images;
 		std::vector<int> SelectableMenuItems;
-
-
-
 		Layer(int level, float position = 0.0f, bool visible = true, bool interactive = true) : layerLevel(level), lastVerticalPosition(position), isVisible(visible), isInteractive(interactive) {}
 	};
 
@@ -39,12 +37,7 @@ namespace GraphicsInterface
 	const int ContinueIndex = 12001;
 	const float LineHeight = .04f;
 	inline bool PauseRendering = false;
-	inline float InputTextWrapAroundWidthN = 1.0f;
-	inline int InputTextLineCount = 1;
-	inline Util::Vector2 InputLocation;
-	inline std::function<std::wstring(const std::wstring&)> g_altDisplayTextFunc = nullptr;
 	inline bool ItemHovered = false;
-	inline bool CenterInput = true;
 
 	inline bool DebugNextFrame = false;
 
@@ -53,8 +46,7 @@ namespace GraphicsInterface
 	{
 	private:
 		static inline std::vector<Layer> layerStack = { Layer(0) };
-		static inline std::vector<GUIBox> IMEOverlayItems;
-		static inline std::vector<GUIText> InputTextItems;
+
 
 
 	private:
@@ -102,8 +94,6 @@ namespace GraphicsInterface
 				}
 			}
 		}
-
-		static std::vector<GUIText> CreateInputLine(std::wstring currentInputText, Util::Vector2 Pos, bool ManualInputFlag);
 		static inline std::thread* dedicatedThread = nullptr;
 		static inline std::mutex mtx;
 		static inline std::queue<std::function<void()>> requests;
@@ -112,9 +102,6 @@ namespace GraphicsInterface
 	public:
 		static GraphicsState* CreateFrame() { return addRequest(&Interface::internalCreateFrame).get(); }
 		static void SetPauseRendering(bool Pause){ return addRequest(&Interface::internalSetPauseRendering,Pause).get(); }
-		static void SetCenterInput(bool Center) { return addRequest(&Interface::internalSetCenterInput, Center).get(); }
-		static void SetMaxWrapAroundWidth(float Width) { return addRequest(&Interface::internalSetMaxWrapAroundWidth, Width).get(); }
-		static int GetInputTextLineCount() { return addRequest(&Interface::internalGetInputTextLineCount).get(); }
 		static int FadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align = true, int fontmodifier = 0) { return addRequest(&Interface::internalFadeInFreeText, text, startingColor, endingColor, duration, xpos, ypos, align, fontmodifier).get(); }
 		static int WriteFreeText(std::wstring text, D2D1::ColorF color, float xpos, float ypos, bool aligncenter = true, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1) { return addRequest(&Interface::internalWriteFreeText, std::move(text), color, xpos, ypos, aligncenter, Selectionindex, FontModifier, selectioncolor, Silhouette, textID).get(); }
 		static int WriteOrderedText(std::wstring text, D2D1::ColorF color, float HorizontalStartPoint = 0, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1) { return addRequest(&Interface::internalWriteOrderedText, std::move(text), color, HorizontalStartPoint, Selectionindex, FontModifier, selectioncolor, Silhouette, textID).get(); }
@@ -122,6 +109,7 @@ namespace GraphicsInterface
 		static void AddBackButton(std::wstring Text = L"Go back") { addRequest(&Interface::internalAddBackButton, std::move(Text)).get(); }
 		static void ClearTextBoxes() { addRequest(&Interface::internalClearTextBoxes).get(); }
 		static int CreateBox(float left, float top, float right, float bottom, D2D1::ColorF color, int width = 0, int selectionIndex = -1, D2D1::ColorF selectionColor = TRANSPARENT_COLOR) { return addRequest(&Interface::internalCreateBox, left, top, right, bottom, color, width, selectionIndex, selectionColor).get(); }
+		static int CreateInputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor, bool centerInput, bool wrapText, bool dynamicSizing, int selectionIndex = -1) {return addRequest(&Interface::internalCreateInputBox, rect, textColor, boxColor, centerInput, wrapText, dynamicSizing, selectionIndex).get();}		
 		static void ClearImages() { addRequest(&Interface::internalClearImages).get(); }
 		static void ClearText() { addRequest(&Interface::internalClearText).get(); }
 		static int AddGUIImage(std::wstring ImagePath, Util::Vector2 pos, float size, int SelectionIndex = -1) { return addRequest(&Interface::internalAddGUIImage, std::move(ImagePath), pos, size, SelectionIndex).get(); }
@@ -139,7 +127,6 @@ namespace GraphicsInterface
 		static void ClearLayer() { addRequest(&Interface::internalClearLayer).get(); }
 		static float GetLastVerticalPosition() { return addRequest(&Interface::internalGetLastVerticalPosition).get(); }
 		static void SetLastVerticalPosition(float value) { addRequest(&Interface::internalSetLastVerticalPosition, value).get(); }
-		static void SetInputLocation(Util::Vector2 pos) { addRequest(&Interface::internalSetInputLocation, pos).get(); }
 		static int PushLayer(bool hideBelow = false, bool disableBelow = true) { return addRequest(&Interface::internalPushLayer, hideBelow, disableBelow).get(); }
 		static int PopLayer() { return addRequest(&Interface::internalPopLayer).get(); }
 		static void PopAllLayers() { addRequest(&Interface::internalPopAllLayers).get(); }
@@ -153,15 +140,20 @@ namespace GraphicsInterface
 		static int GetCurrentSelectableMenuItem() { return addRequest(&Interface::internalGetCurrentSelectableMenuItem).get(); }
 		static void ClearSelectableMenuItems() { addRequest(&Interface::internalClearSelectableMenuItems).get(); }
 		static void AddSelectableMenuItem(int item) { addRequest(&Interface::internalAddSelectableMenuItem, item).get(); }
-		static void ProcessInputText(std::wstring currentInputText, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate, int IMECursorPos, bool IMEComposing, bool ManualInputFlag) { addRequest(&Interface::internalProcessInputText, std::move(currentInputText), std::move(IMEcompositionText), std::move(guiCandidateTexts), SelectedCandidate, IMECursorPos, IMEComposing, ManualInputFlag).get(); }
-		static void ClearTextInput() { addRequest(&Interface::internalClearTextInput).get(); }
+		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate){ addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompositionText),  std::move(guiCandidateTexts), SelectedCandidate).get(); }
+		static void UpdateInputBox(int id, std::wstring newText) { addRequest(&Interface::internalUpdateInputBox,id ,std::move(newText)).get(); }
+		static int GetInputBoxLineCount(int ID) { return addRequest(&Interface::internalGetInputBoxLineCount, ID).get(); }
+		static Util::RECTF GetInputBoxLineRect(int ID, int LineIndex) { return addRequest(&Interface::internalGetInputBoxLineRect, ID, LineIndex).get(); }
+		static Util::Vector2 GetInputBoxCursorPos(int ID) { return addRequest(&Interface::internalGetInputBoxCursorPos, ID).get(); }
+		static bool Control(int ID) { return addRequest(&Interface::internalControl, ID).get(); }
+
+
 
 	private:
 		static GraphicsState* internalCreateFrame();
+		static GUI* internalGetControl(int ID);
+		static std::vector<GUI*> internalGetControls(int ID);
 		static void internalSetPauseRendering(bool pause);
-		static void internalSetCenterInput(bool center);
-		static void internalSetMaxWrapAroundWidth(float width);
-		static int internalGetInputTextLineCount();
 		static int internalFadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align = true, int fontmodifier = 0);
 		static int internalWriteFreeText(std::wstring text, D2D1::ColorF color, float xpos, float ypos, bool aligncenter = true, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1);
 		static int internalWriteOrderedText(std::wstring text, D2D1::ColorF color, float HorizontalStartPoint = 0, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1);
@@ -169,6 +161,7 @@ namespace GraphicsInterface
 		static void internalAddBackButton(std::wstring Text = L"Go back");
 		static void internalClearTextBoxes();
 		static int internalCreateBox(float left, float top, float right, float bottom, D2D1::ColorF color, int width = 0, int selectionIndex = -1, D2D1::ColorF selectionColor = TRANSPARENT_COLOR);
+		static int internalCreateInputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor, bool centerInput, bool wrapText, bool dynamicSizing, int selectionIndex = -1);
 		static void internalClearImages();
 		static void internalClearText();
 		static int internalAddGUIImage(std::wstring ImagePath, Util::Vector2 pos, float size, int SelectionIndex = -1);
@@ -185,7 +178,6 @@ namespace GraphicsInterface
 		static void internalClearLayer();
 		static float internalGetLastVerticalPosition();
 		static void internalSetLastVerticalPosition(float value);
-		static void internalSetInputLocation(Util::Vector2 pos);
 		static int internalPushLayer(bool hideBelow = false, bool disableBelow = true);
 		static int internalPopLayer();
 		static void internalPopAllLayers();
@@ -199,9 +191,13 @@ namespace GraphicsInterface
 		static void internalAddSelectableMenuItem(int item);
 		static void internalClearSelectableMenuItems();
 		static void internalSetGUISelection(int Index);
-		static void internalProcessInputText(std::wstring currentInputText, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate, int IMECursorPos, bool IMEComposing, bool ManualInputFlag);
-		static void internalClearTextInput();
+		static void internalAddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate);
 		static void internalRotateControl(int ID, float rotation);
+		static bool internalControl(int ID);
+		static void internalUpdateInputBox(int ID, const std::wstring& CurrentInput);
+		static int internalGetInputBoxLineCount(int ID);
+		static Util::RECTF internalGetInputBoxLineRect(int ID, int LineIndex);
+		static Util::Vector2 internalGetInputBoxCursorPos(int ID);
 
 	};
 

@@ -31,7 +31,6 @@ public:
 		{
 			Interface::PopAllLayers();
 			Interface::SetPauseRendering(false);
-			Interface::ClearTextInput();
 			throw; 
 		}
 		int newback = Interface:: PopLayer();

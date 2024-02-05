@@ -7,25 +7,18 @@ void Interface::internalSetPauseRendering(bool Pause)
 {
 	PauseRendering = Pause;
 }
-void Interface::internalSetCenterInput(bool Center)
-{
-	CenterInput = Center;
-}
-
-void Interface::internalSetMaxWrapAroundWidth(float width)
-{
-	InputTextWrapAroundWidthN = width;
-}
-
-int Interface::internalGetInputTextLineCount()
-{
-	return InputTextLineCount;
-}
 
 int Interface::internalCreateBox(float left, float top, float right, float bottom, D2D1::ColorF color, int width, int selectionIndex, D2D1::ColorF selectionColor)
 {
 	GUIBox box = GUIBox(color, Util::RECTF(left, top, right, bottom), width, selectionIndex, selectionColor);
 	layerStack.back().TextBoxes.push_back(box);
+	return box.GetID();
+}
+
+int Interface::internalCreateInputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor, bool centerInput, bool wrapText, bool dynamicSizing, int selectionIndex)
+{
+	GUI_InputBox box = GUI_InputBox(rect, textColor, boxColor, centerInput, wrapText, dynamicSizing, selectionIndex);
+	layerStack.back().InputBoxes.push_back(box);
 	return box.GetID();
 }
 
@@ -47,7 +40,7 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 	if (textID == -1) { textID = GUI::GetGroupID(); }
 	vector<GUIText> drawOperations;
 	std::wregex colorPattern(L"\\[([^\\[\\]]*?)\\]\\((([A-Z]{1,2})?,?)?(([+-]\\d+))?\\)");
-	Util::RECTF textRect = GetStringRectN(text, fontHeight, fontModifier, Util::Vector2(position.X, position.Y), false, true);
+	Util::RECTF textRect = GetStringRectN(text, fontHeight, fontModifier, Util::Vector2(position.X, position.Y), false);
 	std::wsmatch colorMatch;
 	if (std::regex_search(text, colorMatch, colorPattern))
 	{
@@ -67,7 +60,7 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 
 			if (!beforeMatch.empty())
 			{
-				Util::RECTF beforeRect = GetStringRectN(beforeMatch, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false, true);
+				Util::RECTF beforeRect = GetStringRectN(beforeMatch, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false);
 				drawOperations.push_back(GUIText(textID, beforeMatch, beforeRect, color, fontModifierN, highlightColor, selectionColor, selectionIndex));
 				horizontalPosition += beforeRect.Width;
 			}
@@ -78,7 +71,7 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 				Tagcolor = GetColorCode(colorMarker);
 				if (Tagcolor.a != 0) { Tagcolor.a = color.a; }
 			}
-			Util::RECTF colorRect = GetStringRectN(colorText, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false, true);
+			Util::RECTF colorRect = GetStringRectN(colorText, fontHeight, fontModifierN, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false);
 			drawOperations.push_back(GUIText(textID, colorText, colorRect, Tagcolor, fontModifierN, highlightColor, selectionColor, selectionIndex));
 			horizontalPosition += colorRect.Width;
 
@@ -87,12 +80,12 @@ std::vector<GUIText> Interface::internalCreateGUIText(std::wstring text, int fon
 
 		if (!inputText.empty())
 		{
-			drawOperations.push_back(GUIText(textID, inputText, GetStringRectN(inputText, fontHeight, fontModifier, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false, true), color, fontModifier, highlightColor, selectionColor, selectionIndex));
+			drawOperations.push_back(GUIText(textID, inputText, GetStringRectN(inputText, fontHeight, fontModifier, Util::Vector2(horizontalPosition, textRect.GetTopLeft().Y), false), color, fontModifier, highlightColor, selectionColor, selectionIndex));
 		}
 	}
 	else
 	{
-		drawOperations.push_back(GUIText(textID, text, GetStringRectN(text, fontHeight, fontModifier, textRect.GetTopLeft(), false, true), color, fontModifier, highlightColor, selectionColor, selectionIndex));
+		drawOperations.push_back(GUIText(textID, text, GetStringRectN(text, fontHeight, fontModifier, textRect.GetTopLeft(), false), color, fontModifier, highlightColor, selectionColor, selectionIndex));
 	}
 	return drawOperations;
 }
@@ -130,7 +123,6 @@ int Interface::internalWriteFreeText(wstring text, D2D1::ColorF color, float Hor
 			}
 		}
 		id = OPs[0].GetID();
-		// Lock the mutex, add to buffer, and unlock mutex
 		Util::VectorAddRange(layerStack.back().GUITextItems, OPs);
 	}
 	if (pos != wstring::npos) { internalWriteFreeText(secondPart, color, HorizontalStartPoint, VerticalStartPosition + LineHeight, aligncenter, Selectionindex, FontModifier, selectioncolor, Silhouette, id); }
@@ -170,7 +162,7 @@ int Interface::internalWriteOrderedText(wstring text, D2D1::ColorF color, float 
 
 int Interface::internalFadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align, int fontmodifier)
 {
-	const int steps = 30; 
+	const int steps = 30;
 	int textID = internalWriteFreeText(text, startingColor, xpos, ypos, align, -1, fontmodifier, NULL, false, -1);
 
 	for (int i = 0; i <= steps; ++i)
@@ -200,109 +192,64 @@ void Interface::internalAddBackButton(wstring Text)
 
 void Interface::internalChangeTextColor(int ID, D2D1::ColorF newcolor)
 {
-	bool found = false;
-	for (Layer& layer : layerStack) {
-		for (GUIText& text : layer.GUITextItems) {
-			if (text.GetID() == ID) {
-				found = true;
-				text.color = newcolor;
-			}
-		}
-		if (found) break;
+	for (auto op : internalGetControls(ID))
+	{
+		GUIText* item = dynamic_cast<GUIText*>(op);
+		item->color = newcolor;
 	}
-
-	if (!found) { Util_LogErrorTerminate(L"Text ID not found"); }
 }
 
 void Interface::internalChangeTextOpacity(int ID, float newValue)
 {
-	bool found = false;
-	for (Layer& layer : layerStack) {
-		for (GUIText& text : layer.GUITextItems) {
-			if (text.GetID() == ID) {
-				found = true;
-				text.color.a = newValue;
-			}
-		}
-		if (found) break;
+	for (auto op : internalGetControls(ID))
+	{
+		GUIText* item = dynamic_cast<GUIText*>(op);
+		item->color.a = newValue;
 	}
-
-	if (!found) { Util_LogErrorTerminate(L"Text ID not found"); }
 }
 
 Util::RECTF Interface::internalGetControlRect(int ID)
 {
-	for (Layer& layer : layerStack)
-	{
-		for (GUI* item : internalGetGUIItemsByLayer(layer.layerLevel))
-		{
-			if (item->GetID() == ID) { return item->GetRectN(); }
-		}
-	}
-	Util_LogErrorTerminate(L"ID not found");
-	return Util::RECTF();
+	return internalGetControl(ID)->GetRectN();
+}
+
+int Interface::internalGetInputBoxLineCount(int ID)
+{
+	GUI_InputBox* inputBox = dynamic_cast<GUI_InputBox*>(internalGetControl(ID));
+	return inputBox->GetLineCount();
+}
+
+Util::RECTF Interface::internalGetInputBoxLineRect(int ID, int LineIndex)
+{
+	GUI_InputBox* inputBox = dynamic_cast<GUI_InputBox*>(internalGetControl(ID));
+	return inputBox->GetLineRect(LineIndex);
+}
+
+Util::Vector2 Interface::internalGetInputBoxCursorPos(int ID)
+{
+	GUI_InputBox* inputBox = dynamic_cast<GUI_InputBox*>(internalGetControl(ID));
+	return inputBox->GetCursorPos();
 }
 
 Util::RECTF Interface::internalGetPhysicsRect(int ID)
 {
-	for (Layer& layer : layerStack)
-	{
-		for (GUI* item : internalGetGUIItemsByLayer(layer.layerLevel))
-		{
-			if (item->GetID() == ID) 
-			{ 
-				GUI_Image* image = dynamic_cast<GUI_Image*>(item);
-				if (image)
-				{
-					return image->GetPhysicsRect();
-				}
-				else
-				{
-					Util_LogErrorTerminate(L"Object is not a GUI_Image");
-				}
-			}
-		}
-	}
-	Util_LogErrorTerminate(L"ID not found");
-	return Util::RECTF();
+	GUI_Image* image = dynamic_cast<GUI_Image*>(internalGetControl(ID));
+	return image->GetPhysicsRect();
 }
 
 void Interface::internalSetControlCenter(int ID, Util::Vector2 newCenter)
 {
-	bool found = false;
-	for (Layer& layer : layerStack)
-	{
-		for (GUI* item : internalGetGUIItemsByLayer(layer.layerLevel))
-		{
-			if (item->GetID() == ID) 
-			{ 
-				Util::RECTF rect = item->GetRectN();
-				Util::Vector2 size = rect.GetSize();
-				Util::Vector2 newTopLeft = newCenter - size / 2.0f;
-				rect.SetPositionTopLeft(newTopLeft);
-				item->SetRectN(rect);
-				found = true;
-			}
-		}
-	}
-	if (!found) { Util_LogErrorTerminate(L"ID not found"); }
+	GUI* item = internalGetControl(ID);
+	Util::RECTF rect = item->GetRectN();
+	Util::Vector2 size = rect.GetSize();
+	Util::Vector2 newTopLeft = newCenter - size / 2.0f;
+	rect.SetPositionTopLeft(newTopLeft);
+	item->SetRectN(rect);
 }
 
 void Interface::internalRotateControl(int ID, float rotation)
 {
-	bool found = false;
-	for (Layer& layer : layerStack)
-	{
-		for (GUI* item : internalGetGUIItemsByLayer(layer.layerLevel))
-		{
-			if (item->GetID() == ID)
-			{
-				item->SetRotation(rotation);
-				found = true;
-			}
-		}
-	}
-	if (!found) { Util_LogErrorTerminate(L"ID not found"); }
+	internalGetControl(ID)->SetRotation(rotation);
 }
 
 bool Interface::internalRemoveControl(int ID)
@@ -329,6 +276,13 @@ bool Interface::internalRemoveControl(int ID)
 		{
 			isRemoved = true;
 			layer.GUITextItems.erase(it3, layer.GUITextItems.end());
+		}
+
+		auto it4 = std::remove_if(layer.InputBoxes.begin(), layer.InputBoxes.end(), [ID](const GUI_InputBox& inputbox) { return inputbox.GetID() == ID; });
+		if (it4 != layer.InputBoxes.end())
+		{
+			isRemoved = true;
+			layer.InputBoxes.erase(it4, layer.InputBoxes.end());
 		}
 	}
 	return isRemoved;
@@ -357,6 +311,9 @@ std::vector<GUI*> Interface::internalGetGUIItemsByLayer(int layer)
 
 	for (auto& textBuffer : layerStack[layer].GUITextItems)
 		guiItems.push_back(&textBuffer);
+
+	for (auto& inputTextBuffer : layerStack[layer].InputBoxes)
+		guiItems.push_back(&inputTextBuffer);
 
 	return guiItems;
 }
@@ -395,17 +352,13 @@ GraphicsState* Interface::internalCreateFrame()
 				g1->GUITextItems.push_back(*static_cast<GUIText*>(CurrentGUIItem));
 				order.emplace_back(GUI::ControlType::GUIText, g1->GUITextItems.size() - 1);
 			}
+
+			else if (CurrentGUIItem->GetType() == GUI::ControlType::GUIInputBox)
+			{
+				g1->GUIInputBoxes.push_back(*static_cast<GUI_InputBox*>(CurrentGUIItem));
+				order.emplace_back(GUI::ControlType::GUIInputBox, g1->GUIInputBoxes.size() - 1);
+			}
 		}
-	}
-	for (int i = 0; i < static_cast<int>(IMEOverlayItems.size()); i++)
-	{
-		g1->TextBoxes.push_back(IMEOverlayItems[i]);
-		order.emplace_back(GUI::ControlType::GUIBox, g1->TextBoxes.size() - 1);
-	}
-	for (int i = 0; i < static_cast<int>(InputTextItems.size()); i++)
-	{
-		g1->GUITextItems.push_back(InputTextItems[i]);
-		order.emplace_back(GUI::ControlType::GUIText, g1->GUITextItems.size() - 1);
 	}
 
 	for (const auto& [type, index] : order)
@@ -421,17 +374,14 @@ GraphicsState* Interface::internalCreateFrame()
 		case GUI::ControlType::GUIText:
 			g1->AllGUIItems.push_back(&g1->GUITextItems[index]);
 			break;
+		case GUI::ControlType::GUIInputBox:
+			g1->AllGUIItems.push_back(&g1->GUIInputBoxes[index]);
+			break;
 		}
 	}
 
 	if (DebugNextFrame) { g1->DebugFrame = true; }
 	return g1;
-}
-
-void Interface::internalClearTextInput()
-{
-	IMEOverlayItems.clear();
-	InputTextItems.clear();
 }
 
 void Interface::internalClearLayer()
@@ -441,6 +391,7 @@ void Interface::internalClearLayer()
 		layerStack.back().GUITextItems.clear();
 		layerStack.back().Images.clear();
 		layerStack.back().TextBoxes.clear();
+		layerStack.back().InputBoxes.clear();
 		layerStack.back().lastVerticalPosition = 0;
 	}
 	else { Util_LogErrorTerminate(L"No layer to clear"); }
@@ -457,11 +408,6 @@ void Interface::internalSetLastVerticalPosition(float value) {
 	if (!layerStack.empty()) {
 		layerStack.back().lastVerticalPosition = value;
 	}
-}
-
-void Interface::internalSetInputLocation(Util::Vector2 pos)
-{
-	InputLocation = pos;
 }
 
 int Interface::internalPushLayer(bool hideBelow, bool disableBelow) //returns new current layer level
@@ -624,109 +570,170 @@ void Interface::internalAddSelectableMenuItem(int item)
 	if (!layerStack.empty())
 	{
 		auto& items = layerStack.back().SelectableMenuItems;
-		Util_Assert(!Util::VectorContains(items, item), L"Error item already exists in vector");
-		auto it = std::lower_bound(items.begin(), items.end(), item);
-		items.insert(it, item);
+		if (!Util::VectorContains(items, item))
+		{
+			auto it = std::lower_bound(items.begin(), items.end(), item);
+			items.insert(it, item);
+		}
 	}
 }
 
-vector<GUIText> Interface::CreateInputLine(wstring currentInputText, Util::Vector2 Pos, bool ManualInputFlag)
+GUI* Interface::internalGetControl(int ID)
 {
-	vector<GUIText> InputControls;
-	Util::RECTF inputRect = GetStringRectN(currentInputText, fontHeight, 0, Pos, false, false);
-	if (CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(currentInputText, fontHeight, 0, inputRect.GetTopLeft())); }  //manually center aligned to prevent jumping back and forth as cursor blinks
-	wstring DisplayInputText = currentInputText;
-	if (g_altDisplayTextFunc) { DisplayInputText = g_altDisplayTextFunc(DisplayInputText); }
-	if (ManualInputFlag) { DisplayInputText = L"[" + DisplayInputText + L"](TP)"; }
-	Util::VectorAddRange(InputControls, internalCreateGUIText(DisplayInputText, 0, InputTextColor, Util::Vector2(inputRect.Left, Pos.Y), -1, WHITE, TRANSPARENT_COLOR, false, -1));
-	return InputControls;
+	for (auto it = layerStack.rbegin(); it != layerStack.rend(); ++it)
+	{
+		for (GUI* item : internalGetGUIItemsByLayer(it->layerLevel))
+		{
+			if (item->GetID() == ID)
+			{
+				return item;
+			}
+		}
+	}
+	Util_LogErrorTerminate(L"ID not found");
 }
 
-void Interface::internalProcessInputText(wstring currentInputText, wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate, int IMECursorPos, bool IMEComposing, bool ManualInputFlag)
+bool Interface::internalControl(int ID)
 {
-	vector<GUIText> InputControls;
-	int TotalLines = 0;
-	wstring remainingText = currentInputText;
-	Util::Vector2 currentPosition = InputLocation;
+	if (ID == -1) { return false; }
+	for (auto it = layerStack.rbegin(); it != layerStack.rend(); ++it)
+	{
+		for (GUI* item : internalGetGUIItemsByLayer(it->layerLevel))
+		{
+			if (item->GetID() == ID){return true;}
+		}
+	}
+	return false;
+}
+
+vector<GUI*> Interface::internalGetControls(int ID)
+{
+	vector<GUI*> controls;
+	for (auto it = layerStack.rbegin(); it != layerStack.rend(); ++it)
+	{
+		for (GUI* item : internalGetGUIItemsByLayer(it->layerLevel))
+		{
+			if (item->GetID() == ID) { controls.push_back(item); }
+		}
+	}
+	if (controls.empty()) { Util_LogErrorTerminate(L"ID not found"); }
+	return controls;
+}
+
+
+void Interface::internalAddIMEOverlay(int ID, wstring IMEcompositionText, vector<wstring> guiCandidateTexts, int SelectedCandidate)
+{
+	GUI_InputBox* box = static_cast<GUI_InputBox*>(internalGetControl(ID));
+	box->IMETextItems.clear();
+	Util::VectorAddRange(box->IMETextItems, internalCreateGUIText(IMEcompositionText, 0, InputTextColor, box->GetCursorPos(), -1, WHITE, RED, false, -1));
+	//IME CURSOR Util::VectorAddRange(InputControls, internalCreateGUIText(((GetTickCount64() % 1000 < 500) ? CursorDesign : L""), 0, InputTextColor, Util::Vector2(imecursorCompRect.Right, currentPosition.Y), -1, WHITE, TRANSPARENT_COLOR, false, -1));
+	float MaxLength = 0;
+	for (int i = 0; i < guiCandidateTexts.size(); i++)
+	{
+		Util::RECTF rect = GetStringRectN(guiCandidateTexts[i], fontHeight, 0, Util::Vector2(box->GetCursorPos().X, box->GetCursorPos().Y + LineHeight * (i + 1)), false);
+		if (i == SelectedCandidate) { Util::VectorAddRange(box->IMETextItems, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetTopLeft(), -1, WHITE, GREEN, false, -1)); }
+		else { Util::VectorAddRange(box->IMETextItems, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetTopLeft(), -1, WHITE, TRANSPARENT_COLOR, false, -1)); }
+		MaxLength = max(MaxLength, rect.Width);
+	}
+	box->IMEBox = GUIBox(BLACK, Util::RECTF(box->GetCursorPos().X, box->GetCursorPos().Y, box->GetCursorPos().X + MaxLength, box->GetCursorPos().Y + LineHeight * (guiCandidateTexts.size() + 1.3f)));
+	return;
+}
+
+
+void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
+{
+	GUI_InputBox* box = static_cast<GUI_InputBox*>(internalGetControl(ID));
+	box->GUITexts.clear();
+	box->IMEBox = nullopt;
+	box->IMETextItems.clear();
+	box->Cursor = nullopt;
+	vector<wstring> lines;
+	wstring remainingText = CurrentInput;
+	Util::Vector2 currentPosition = box->CenterInput ? Util::Vector2(box->GetRectN().GetCenter().X, box->GetRectN().Top) : Util::Vector2(box->GetRectN().Left, box->GetRectN().Top);
+
 	while (!remainingText.empty())
 	{
-		Util::RECTF textRect = GetStringRectN(remainingText, fontHeight, 0, currentPosition, false, false);
+		Util::RECTF textRect = GetStringRectN(remainingText, fontHeight, 0, currentPosition, false);
 		float textWidth = textRect.Right - textRect.Left;
-		if (textWidth <= InputTextWrapAroundWidthN) { break; }
+		if (textWidth <= box->GetRectN().GetSize().X)
+		{
+			lines.push_back(remainingText);
+			break;
+		}
 		else
 		{
-			// Find split position by reducing it until it fits
 			size_t splitPos = remainingText.size();
 			while (splitPos > 0)
 			{
 				wstring testLine = remainingText.substr(0, splitPos);
-				textRect = GetStringRectN(testLine, fontHeight, 0, currentPosition, false, false);
+				textRect = GetStringRectN(testLine, fontHeight, 0, currentPosition, false);
 				textWidth = textRect.Right - textRect.Left;
-				if (textWidth <= InputTextWrapAroundWidthN) { break; }
-				splitPos--;  // Reduce split position to shorten line
+				if (textWidth <= box->GetRectN().GetSize().X)
+				{
+					lines.push_back(testLine);
+					remainingText = remainingText.substr(splitPos);
+					break;
+				}
+				splitPos--;
 			}
-
-			// Create line from start to splitPos
-			wstring lineText = remainingText.substr(0, splitPos);
-			vector<GUIText> lineControls = CreateInputLine(lineText, currentPosition, ManualInputFlag);
-			Util::VectorAddRange(InputControls, lineControls);
-
-			// Update remaining text and position for next line
-			remainingText = remainingText.substr(splitPos);
-			currentPosition.Y += LineHeight;
-			TotalLines++;
 		}
 	}
-
-	// Update currentInputText to only include the text for the last line
-	currentInputText = remainingText;
-
-
-	wstring Combined = currentInputText + IMEcompositionText;
-	wstring CombinedCursor = currentInputText + IMEcompositionText.substr(0, IMECursorPos);
-
-	Util::RECTF inputRect = GetStringRectN(currentInputText, fontHeight, 0, currentPosition, false, false);
-	Util::RECTF imecursorCompRect = Util::RECTF(0, 0, 0, 0);
-	if (IMEComposing && !IMEcompositionText.empty())
+	Util::RECTF boxRect = box->GetRectN();
+	Util::RECTF inputRect;
+	float leftMost = box->CenterInput ? boxRect.GetCenter().X : boxRect.Left;
+	float rightMost = box->CenterInput ? boxRect.Left : boxRect.GetCenter().X;
+	for (int i = 0; i < lines.size(); i++)
 	{
-		imecursorCompRect = GetStringRectN(CombinedCursor, fontHeight, 0, currentPosition, false, false);
+		Util::RECTF inputRect = GetStringRectN(lines[i], fontHeight, 0, Util::Vector2(currentPosition.X, currentPosition.Y + (i * LineHeight)), false);
+		if (box->CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(lines[i], fontHeight, 0, inputRect.GetTopLeft())); }
+		if (inputRect.Bottom >= box->GetRectN().Bottom) { break; }
+		box->GUITexts.push_back(GUIText(-1, lines[i], inputRect, box->TextColor, 0, TRANSPARENT_COLOR, box->TextColor, -1));
+		if (box->CenterInput) { leftMost = min(leftMost, inputRect.Left); }
+		rightMost = max(rightMost, inputRect.Right);
 	}
-	if (CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(Combined, fontHeight, 0, inputRect.GetTopLeft())); }  //manually center aligned to prevent jumping back and forth as cursor blinks
-	imecursorCompRect.SetPositionTopLeft(inputRect.GetTopLeft());
-	wstring DisplayInputText = currentInputText;
-	if (g_altDisplayTextFunc) { DisplayInputText = g_altDisplayTextFunc(DisplayInputText); }
-	if (ManualInputFlag) { DisplayInputText = L"[" + DisplayInputText + L"](TP)"; }
-
-	Util::VectorAddRange(InputControls, internalCreateGUIText(DisplayInputText + ((!IMEComposing && GetTickCount64() % 1000 < 500) ? CursorDesign : L""), 0, InputTextColor, Util::Vector2(inputRect.Left, currentPosition.Y), -1, WHITE, TRANSPARENT_COLOR, false, -1));
-	if (IMEComposing)
+	if (box->BoxColor.a != 0)
 	{
-		Util::VectorAddRange(InputControls, internalCreateGUIText(IMEcompositionText, 0, InputTextColor, Util::Vector2(inputRect.Right, currentPosition.Y), -1, WHITE, RED, false, -1));
-		Util::VectorAddRange(InputControls, internalCreateGUIText(((GetTickCount64() % 1000 < 500) ? CursorDesign : L""), 0, InputTextColor, Util::Vector2(imecursorCompRect.Right, currentPosition.Y), -1, WHITE, TRANSPARENT_COLOR, false, -1));
-		float MaxLength = 0;
-		for (int i = 0; i < guiCandidateTexts.size(); i++)
+		if (box->DynamicBox)
 		{
-			Util::RECTF rect = GetStringRectN(guiCandidateTexts[i], fontHeight, 0, Util::Vector2(inputRect.Right, currentPosition.Y + LineHeight * (i + 1)), false, false);
-			if (i == SelectedCandidate) { Util::VectorAddRange(InputControls, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetTopLeft(), -1, WHITE, GREEN, false, -1)); }
-			else { Util::VectorAddRange(InputControls, internalCreateGUIText(guiCandidateTexts[i], 0, WHITE, rect.GetTopLeft(), -1, WHITE, TRANSPARENT_COLOR, false, -1)); }
-			MaxLength = max(MaxLength, rect.Width);
+			float maxWidth = boxRect.Width;
+			float WidthIncrement = maxWidth / box->WidthIncrement;
+			float targetWidth = box->MinWidth;
+
+			float currentWidth = rightMost - leftMost;
+			for (int i = 1; i <= box->WidthIncrement; i++)
+			{
+				if (currentWidth <= WidthIncrement * i * box->WrapThreshold)
+				{
+					targetWidth = max(targetWidth, WidthIncrement * i);
+					break;
+				}
+			}
+			if (currentWidth > WidthIncrement * box->WidthIncrement * box->WrapThreshold) { targetWidth = maxWidth; }
+
+			if (box->CenterInput)
+			{
+				float centerX = boxRect.GetCenter().X;
+				leftMost = centerX - (targetWidth / 2);
+				rightMost = centerX + (targetWidth / 2);
+			}
+			else
+			{
+				rightMost = boxRect.Left + targetWidth;
+			}
+			leftMost = max(leftMost, boxRect.Left);
+			rightMost = min(rightMost, boxRect.Right);
+			box->InputBox = GUIBox(TextBoxColor, Util::RECTF(leftMost, boxRect.Top, rightMost, min(boxRect.Top + max(lines.size(), 1) * (1.5 * LineHeight), boxRect.Bottom)), 0, -1, TextBoxColor);
 		}
-		GUIBox b1 = GUIBox(BLACK, Util::RECTF(inputRect.Right, GetTightStringRectN(inputRect).Top, inputRect.Right + MaxLength, currentPosition.Y + LineHeight * (guiCandidateTexts.size() + 1.3f)));
-		IMEOverlayItems = { b1 };
+		else
+		{
+			box->InputBox = GUIBox(TextBoxColor, box->GetRectN(), 0, -1, TextBoxColor);
+		}
 	}
-	else
+
+	if (box->DisplayCursor)
 	{
-		IMEOverlayItems.clear();
+		if (GetTickCount64() % (2 * box->CursorBlinkInterval) < box->CursorBlinkInterval) { box->Cursor = GUIText(-1, CursorDesign, GetStringRectN(CursorDesign, fontHeight, 0, box->GetCursorPos(), false), box->TextColor, 0, TRANSPARENT_COLOR, box->TextColor, -1); }
 	}
-	TotalLines++;
-	InputTextLineCount = TotalLines;
-	InputTextItems = InputControls;
+	return;
 }
-
-
-
-
-
-
-
-
 

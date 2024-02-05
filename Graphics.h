@@ -19,6 +19,7 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include <map>
+#include <optional>
 
 #include "CPPUtil.h"
 
@@ -36,7 +37,6 @@ inline IWICImagingFactory* pIWICFactory = nullptr;
 inline IDWriteFactory* pDWriteFactory = nullptr;
 
 inline bool RenderEngineInitialized = false;
-
 
 inline std::wstring CursorDesign = L"▌";
 
@@ -73,8 +73,8 @@ Util::Vector2 PxToNormalized(Util::Vector2 Position);
 Util::RECTF PxToNormalized(Util::RECTF Rect);
 Util::Vector2 NormalizedToPx(Util::Vector2 Position);
 Util::RECTF NormalizedToPx(Util::RECTF Rect);
-Util::RECTF GetStringRectN(std::wstring text, int fontHeight, int fontmodifier, Util::Vector2 originN, bool IncludeMarkup, bool IncludeCursor);
-Util::RECTF GetSubStringRectN(std::wstring text, std::wstring substring, int fontHeight, int fontModifier, Util::Vector2 originN, bool IncludeMarkup, bool IncludeCursor,int StartIndex = 0);
+Util::RECTF GetStringRectN(std::wstring text, int fontHeight, int fontmodifier, Util::Vector2 originN, bool IncludeMarkup);
+Util::RECTF GetSubStringRectN(std::wstring text, std::wstring substring, int fontHeight, int fontModifier, Util::Vector2 originN, bool IncludeMarkup,int StartIndex = 0);
 Util::RECTF GetTightStringRectN(Util::RECTF rectN, float percentage = 0.20f);
 Util::Vector2 GetTextAlignCenter(std::wstring text,int fontHeight, int fontmodifier, Util::Vector2 origin);
 D2D1::ColorF GetColorCode(std::wstring code);
@@ -98,61 +98,17 @@ public:
 
 class OutputBuffer {
 public:
-	static inline HWND WindowHandle;
+	static inline HWND TargetWindow;
 	static inline ID2D1HwndRenderTarget* RenderTarget = nullptr;
-	static inline int CurrentWidth = 2560;
-	static inline int CurrentHeight = 1440;
-
-	static Util::RECTF GetOutputBufferRect()
-	{
-		// Get DPI for the window
-		float dpi = static_cast<float>(GetDpiForWindow(WindowHandle));
-		float refdpi = 96.0f;
-
-		// Calculate scaling ratios separately for width and height
-		float widthRatio = CurrentWidth * refdpi / RenderBuffer::BufferSize.X / dpi;
-		float heightRatio = CurrentHeight * refdpi / RenderBuffer::BufferSize.Y / dpi;
-		float minRatio = (std::min)(widthRatio, heightRatio); // Use std::min to find the smaller ratio
-
-		// Calculate scaled dimensions separately for width and height
-		int scaledWidth = static_cast<int>(RenderBuffer::BufferSize.X * minRatio);
-		int scaledHeight = static_cast<int>(RenderBuffer::BufferSize.Y * minRatio);
-
-		// Calculate the start position for the image to be centered, separately for x and y
-		float startX = (CurrentWidth * refdpi / dpi - scaledWidth) / 2.0f;
-		float startY = (CurrentHeight * refdpi / dpi - scaledHeight) / 2.0f;
-
-		// Create and return the final Rect
-		return Util::RECTF(startX, startY, startX + scaledWidth, startY + scaledHeight);
-	}
-
-	static Util::Vector2 WindowPosToRenderBufferPos(Util::Vector2 PosClient)
-	{
-		float dpi = static_cast<float>(GetDpiForWindow(WindowHandle));
-		// Scale cursor position with DPI
-		Util::Vector2 DpiScaledPos = PosClient * 96.0f / dpi;
-
-		// Get the scaled and centered Rect
-		Util::RECTF rect = OutputBuffer::GetOutputBufferRect();
-		if (rect.Right - rect.Left == 0 || rect.Bottom - rect.Top == 0) { return Util::Vector2(0, 0); }
-		// Calculate scale ratios
-		Util::Vector2 Ratio = rect.GetSize() / RenderBuffer::BufferSize;
-
-		// Transform mouse position to bitmap's coordinate system
-		Util::Vector2 TransformedPos = (DpiScaledPos - rect.GetTopLeft()) / Ratio;
-		return TransformedPos;
-	}
-
+	static Util::RECTF GetOutputBufferRect();
+	static Util::Vector2 WindowPosToRenderBufferPos(Util::Vector2 PosClient);
 };
 
 class GUI {
 public:
-	enum class ControlType { GUIImage, GUIBox, GUIText };
+	enum class ControlType { GUIImage, GUIBox, GUIText, GUIInputBox};
 
-	GUI(Util::RECTF rect, int selectionIndex = -1) : ID(++counter), SelectionIndex(selectionIndex), RectN(rect)
-	{
-		if (counter > 999999) { counter = 0; }
-	}
+	GUI(Util::RECTF rect, int selectionIndex = -1);
 
 	int GetID() const { return ID; }
 	bool IsSelectable() { return SelectionIndex != -1; }
@@ -163,12 +119,7 @@ public:
 	virtual bool IsHovered(Util::Vector2) = 0;
 	virtual ControlType GetType() const = 0;
 	virtual void Render(ID2D1RenderTarget*) = 0;
-	static int GetGroupID()
-	{
-		counter++;
-		if (counter > 999999) { counter = 0; }
-		return counter;
-	}
+	static int GetGroupID();
 
 	bool Selected = false;
 	int SelectionIndex;
@@ -184,24 +135,9 @@ private:
 
 struct GUI_Image : public GUI
 {
-	GUI_Image(const std::wstring& imagePath, Util::Vector2 pos, float size, int SelectionIndex) : GUI(Util::RECTF(pos), SelectionIndex), imagePath(imagePath), size(size)
-	{
-		Gdiplus::Bitmap originalBitmap = Gdiplus::Bitmap(imagePath.c_str());
-		Gdiplus::Bitmap* resizedBitmap = new Gdiplus::Bitmap(static_cast<INT>(originalBitmap.GetWidth() * size), static_cast<INT>(originalBitmap.GetHeight() * size), originalBitmap.GetPixelFormat());
-		Gdiplus::Graphics graphics(resizedBitmap);
-		graphics.DrawImage(&originalBitmap, 0, 0, resizedBitmap->GetWidth(), resizedBitmap->GetHeight());
-		RenderBuffer::MouseHoverBitmaps[imagePath] = resizedBitmap;
-		Util::Vector2 pixelSizeNCenter = PxToNormalized(Util::Vector2(static_cast<float>(resizedBitmap->GetWidth()), static_cast<float>(resizedBitmap->GetHeight()))) / 2.0f;
-		RectN = Util::RECTF(RectN.Left-pixelSizeNCenter.X, RectN.Top - pixelSizeNCenter.Y, RectN.Left + pixelSizeNCenter.X, RectN.Top + pixelSizeNCenter.Y);
-	}
+	GUI_Image(const std::wstring& imagePath, Util::Vector2 pos, float size, int SelectionIndex);
 
-	void DeleteImage()
-	{
-		delete RenderBuffer::MouseHoverBitmaps[imagePath];
-		RenderBuffer::MouseHoverBitmaps.erase(imagePath);
-		RenderBuffer::Bitmaps[imagePath]->Release();
-		RenderBuffer::Bitmaps.erase(imagePath);
-	}
+	void DeleteImage();
 
 	bool IsHovered(Util::Vector2 MousePosClient) override;
 	Util::RECTF GetPhysicsRect();
@@ -214,8 +150,7 @@ struct GUI_Image : public GUI
 
 struct GUIBox : public GUI
 {
-	GUIBox(D2D1::ColorF color, Util::RECTF rect, int width = 0, int selectionindex = -1, D2D1::ColorF selectioncolor = D2D1::ColorF(0, 0, 0, 0))
-		: GUI(rect, selectionindex), color(color), borderWidth(width), selectionColor(selectioncolor) {}
+	GUIBox(D2D1::ColorF color, Util::RECTF rect, int width = 0, int selectionindex = -1, D2D1::ColorF selectioncolor = D2D1::ColorF(0, 0, 0, 0));
 
 	bool IsHovered(Util::Vector2 MousePosClient) override;
 	ControlType GetType() const override { return ControlType::GUIBox; }
@@ -233,7 +168,7 @@ struct GUIText : public GUI
 public:
 	std::wstring text;
 	D2D1::ColorF color;
-	int fontModifier;
+	int fontModifier = 0;
 	D2D1::ColorF highlightColor;
 	D2D1::ColorF selectionColor;
 	bool wrap = false;
@@ -241,23 +176,63 @@ public:
 	bool IsHovered(Util::Vector2 MousePosClient) override;
 	ControlType GetType() const override { return ControlType::GUIText; }
 	void Render(ID2D1RenderTarget* Target) override;
-
-	Util::RECTF GetTightStringRectP(float percentage = 0.20f) { return NormalizedToPx(GetTightStringRectN(RectN)); }
-	GUIText(int guiID, const std::wstring& t, const Util::RECTF& r, const D2D1::ColorF& c, const int& f, const D2D1::ColorF& hc, const D2D1::ColorF& sc, const int index)
-		: GUI(r, index), text(t), color(c), fontModifier(f), highlightColor(hc), selectionColor(sc)
-	{
-		if (guiID != -1) { ID = guiID; }
-	}
+	GUIText(int guiID, const std::wstring& t, const Util::RECTF& r, const D2D1::ColorF& c, const int& f, const D2D1::ColorF& highlightColor, const D2D1::ColorF& selectionColor, const int index);
 };
+
+
+struct GUI_InputBox : public GUI {
+	GUI_InputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor,bool centerInput,bool wrapText,bool dynamicSizing,  int selectionIndex = -1): GUI(rect, selectionIndex), TextColor(textColor), BoxColor(boxColor), CenterInput(centerInput),AllowWrap(wrapText),DynamicBox(dynamicSizing)
+	{
+		MinWidth = min(rect.Width, .2f);
+	}
+
+	bool IsHovered(Util::Vector2 MousePosClient) override;
+	ControlType GetType() const override { return ControlType::GUIInputBox; }
+	void Render(ID2D1RenderTarget* Target) override;
+
+	Util::Vector2 GetCursorPos()
+	{
+		return GUITexts.size()> 0?GUITexts.back().GetRectN().GetTopRight():CenterInput?Util::Vector2(RectN.GetCenter().X,RectN.Top):RectN.GetTopLeft();
+	}
+
+	int GetLineCount()
+	{
+		return GUITexts.size();
+	}
+
+	Util::RECTF GetLineRect(int LineIndex)
+	{
+		return GUITexts[LineIndex].GetRectN();
+	}
+
+	std::vector<GUIText> GUITexts;
+	std::optional<GUIText> Cursor;
+	std::optional<GUIBox> InputBox;
+	std::optional<GUIBox> IMEBox;
+	std::vector<GUIText> IMETextItems;
+	bool CenterInput = true;
+	D2D1::ColorF TextColor;
+	D2D1::ColorF BoxColor;
+	bool DisplayCursor = true;
+	bool AllowWrap = true;
+	bool DynamicBox = false;
+	int CursorBlinkInterval = 500;
+	float MinWidth;
+	int WidthIncrement = 4;
+	float WrapThreshold = .8f;
+};
+
+
+
 
 struct GraphicsState
 {
 	bool DebugFrame = false;
 	BackgroundImage backgroundImage = {};
+	std::vector<GUI_InputBox> GUIInputBoxes = {};
 	std::vector<GUIText> GUITextItems = {};
 	std::vector<GUIBox> TextBoxes = {};
 	std::vector<GUI_Image> Images = {};
-
 	std::vector<GUI*> AllGUIItems;
 };
 
