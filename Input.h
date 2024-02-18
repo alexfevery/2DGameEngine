@@ -51,47 +51,47 @@ namespace Input
 			}
 		}
 
-		bool IsControlFreshlyPressed(int VK_keycode)
+		bool IsControlFreshlyPressed(int VK_keycode) const
 		{
 			return keyStates[VK_keycode] == KEY_DOWN && prevKeyStates[VK_keycode] == KEY_UP;
 		}
 
-		bool IsControlReleased(int VK_keycode)
+		bool IsControlReleased(int VK_keycode) const
 		{
 			return keyStates[VK_keycode] == KEY_UP;
 		}
 
-		bool IsControlDown(int VK_keycode)
+		bool IsControlDown(int VK_keycode) const
 		{
 			return keyStates[VK_keycode] == KEY_DOWN;
 		}
 
-		std::vector<int> GetKeysPressed()
+		std::vector<int> GetKeysPressed() const
 		{
 			return keysPressed;
 		}
 
-		std::vector<int> GetKeysDown()
+		std::vector<int> GetKeysDown() const
 		{
 			return keysDown;
 		}
 
-		std::vector<int> GetKeysReleased()
+		std::vector<int> GetKeysReleased() const
 		{
 			return keysReleased;
 		}
 
-		std::vector<int> GetButtonsPressed()
+		std::vector<int> GetButtonsPressed() const
 		{
 			return ButtonsPressed;
 		}
 
-		std::vector<int> GetButtonsDown()
+		std::vector<int> GetButtonsDown() const
 		{
 			return ButtonsDown;
 		}
 
-		std::vector<int> GetButtonsReleased()
+		std::vector<int> GetButtonsReleased() const
 		{
 			return ButtonsReleased;
 		}
@@ -161,14 +161,11 @@ namespace Input
 	inline std::function<std::wstring(const std::wstring&)> g_onEndTextEntryFunc = nullptr;
 	inline std::function<void()> g_onNextKeyDown = nullptr;
 	inline const int MaxInputLength = 256;
-	inline std::wstring CurrentInputText;
 	inline bool IMEComposing = false;
 	inline bool IMECompositionComplete = false;
 	inline bool IMEActivated = false;
 	inline std::wstring IMECompositionText;
 	inline bool SignalCloseWindow = false;
-
-	inline HWND hostWindowHandle;
 
 	struct IMEState
 	{
@@ -181,8 +178,11 @@ namespace Input
 	struct TextInputState
 	{
 		std::wstring CurrentInputText;
+		int CursorPosition = -1;
 		std::optional<IMEState> IMEState;
 	};
+
+	inline TextInputState TextState;
 
 	struct InputEvent
 	{
@@ -196,8 +196,8 @@ namespace Input
 		int64_t starttime = -1;
 		int64_t endtime = 0;
 		int SelectedIndex = -1;
-		TextInputState InputState;
-		std::wstring GetFinalInputText() { return Util::EraseAllSubStr(CurrentInputText, L"\n"); }
+		TextInputState GetTextState() { return TextState; }
+		std::wstring GetFinalInputText() { return Util::EraseAllSubStr(GetTextState().CurrentInputText, L"\n"); }
 		bool InputTextModified() { return !Util::StringsEqual(GetFinalInputText(), PrefillInputText); }
 	};
 
@@ -236,7 +236,7 @@ namespace Input
 		InputEvent UserAction = {};
 		bool AllowCancel = true;
 		bool Enabled = true;
-
+		std::exception_ptr Exception = nullptr;
 	public:
 		InputEvent GetInput();
 
@@ -310,7 +310,7 @@ namespace Input
 		auto sharedPromise = std::make_shared<std::promise<InputEvent>>();
 		std::atomic<bool> sharedAtomicFlag(false);
 		std::vector<std::thread> threads;
-
+		SignalCloseWindow = false;
 		for (auto awaiter : awaiters)
 		{
 			threads.emplace_back([awaiter, &sharedAtomicFlag, &sharedPromise] {awaiter->GetInputAsync(sharedPromise, &sharedAtomicFlag); });
@@ -320,25 +320,32 @@ namespace Input
 		{
 			t.join();
 		}
-		if (SignalCloseWindow)
+		if (SignalCloseWindow) 
 		{
-			SignalCloseWindow = false;
 			throw SignalCloseWindowException();
+		}
+		for (auto awaiter : awaiters)
+		{
+			if (awaiter->Exception != nullptr)
+			{
+				std::rethrow_exception(awaiter->Exception);
+			}
 		}
 		return result;
 	}
 
 	void UpdateOverlayPosition(HWND hostWindowHandle);
-	void CloseOverlay();
+	void DestroyOverlay();
 	void AttachToWindow(HWND windowHandle);
 
 	inline void SetTextProcessingFunction(std::function<std::wstring(const std::wstring&)> func) { g_processTextFunc = func; }
 	inline void SetOnStartTypingFunction(std::function<std::wstring(const std::wstring&)> func) { g_onStartTextEntryFunc = func; }
 	inline void SetOnEndTypingFunction(std::function<std::wstring(const std::wstring&)> func) { g_onEndTextEntryFunc = func; }
 	inline void SetOnNextKeyDownFunction(std::function<void()> func) { g_onNextKeyDown = func; }
-
+	void RequestCloseWindow();
 	TextInputState ProcessTextInput();
 	std::wstring GetInputText();
+	int GetCursorPosition();
 	void SetInputText(std::wstring text, bool SetCursorToEnd, bool TriggerMessage);
 	static LRESULT CALLBACK ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 	LRESULT CALLBACK SubclassedEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

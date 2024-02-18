@@ -52,7 +52,7 @@ public:
 	std::function<void(int width, int height)> onResize;
 	std::function<void(double deltaTime)> onUpdateFrame;
 	std::function<void()> onRenderFrame;
-	std::function<void()> onClose;
+	std::function<bool()> onClose;
 
 	TrayIconData trayIconData;
 
@@ -60,7 +60,6 @@ public:
 	std::mutex cv_m;
 	std::atomic<bool> RunWindow {false};
 
-	bool DestroyWindowFlag = false;
 	bool WindowOpen = false;
 	int showWindowCommand = SW_SHOW;
 	DWORD windowStyle = WS_OVERLAPPEDWINDOW;

@@ -89,15 +89,15 @@ void DemoMenu::Show()
 		if (event.ActionType == InputResultType::INPUTCANCEL)
 		{
 			Interface::RemoveControl(inputBoxID);
-			ActivateTypingID = Interface::WriteFreeText(L"Click To Type!", BLUE, .5, .5, true, ActivateTypingSelectionId, 0, GREEN);
+			ActivateTypingID = Interface::WriteFreeText(L"Click To Type!", BLUE, .5f, .5f, true, ActivateTypingSelectionId, 0, GREEN);
 			KeyAwaiter.SetEnabled(true);
 			Text.SetEnabled(false);
 			return false;
 		}
 		Interface::RemoveControl(ActivateTypingID);
-		if(!Interface::Control(inputBoxID)){inputBoxID = Interface::CreateInputBox(Util::RECTF(.35, .5, .65, .6), WHITE, BLACK, true, true, true);}
-		Interface::UpdateInputBox(inputBoxID, event.InputState.CurrentInputText);
-		if (event.InputState.IMEState.has_value()) { Interface::AddIMEOverlay(inputBoxID, event.InputState.IMEState->IMECompositionText, event.InputState.IMEState->guiCandidateTexts, event.InputState.IMEState->SelectedCandidate); }
+		if(!Interface::Control(inputBoxID)){inputBoxID = Interface::CreateInputBox(Util::RECTF(.35f, .5f, .65f, .6f), WHITE, BLACK, true, true, true);}
+		Interface::UpdateInputBox(inputBoxID, event.GetTextState().CurrentInputText, event.GetTextState().IMEState.has_value() ? -1 : event.GetTextState().CursorPosition);
+		if (event.GetTextState().IMEState.has_value()) { Interface::AddIMEOverlay(inputBoxID, event.GetTextState().IMEState->IMECompositionText, event.GetTextState().IMEState->IMECursorPos, event.GetTextState().IMEState->guiCandidateTexts, event.GetTextState().IMEState->SelectedCandidate); }
 		return false;
 		});
 	Text.SetEnabled(false);
@@ -130,12 +130,13 @@ void DemoMenu::Show()
 
 void Update(double deltaTime)
 {
-
+	Util::VariableMonitor::PrintMonitorValues(G1->m_hwnd);
 }
 
 void Load()
 {
 	AttachToWindow(G1->m_hwnd);
+	Util::VariableMonitor::AddValueMonitor(L"fps", &G1->FrameRate);
 }
 
 void Resize(int width, int height)
@@ -151,17 +152,14 @@ void Render()
 	delete g1;
 }
 
-void Close()
+bool Close()
 {
-	Input::CloseOverlay();
+	Input::RequestCloseWindow();
+	return false;
 }
 
 int main()
 {
-	Util::Vector2 test = GetTextDimensionsP(L"test", 72, 0);
-
-
-
 	std::wcout << L"Welcome to 2D Game Engine Demo" << std::endl;
 	std::wcout << L"Creating Game Window" << std::endl;
 	G1 = new GameWindow2D(.5, .5);
@@ -169,7 +167,7 @@ int main()
 	G1->onResize = [](int width, int height) { Resize(width, height); };
 	G1->onUpdateFrame = [](double deltaTime) { Update(deltaTime); };
 	G1->onRenderFrame = []() { Render(); };
-	G1->onClose = []() {Close(); };
+	G1->onClose = []() {return Close(); };
 	std::wcout << L"Initializing game window at 60fps" << std::endl;
 	G1->Run(60, false);
 	std::wcout << L"Starting graphics rendering engine" << std::endl;

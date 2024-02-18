@@ -140,8 +140,8 @@ namespace GraphicsInterface
 		static int GetCurrentSelectableMenuItem() { return addRequest(&Interface::internalGetCurrentSelectableMenuItem).get(); }
 		static void ClearSelectableMenuItems() { addRequest(&Interface::internalClearSelectableMenuItems).get(); }
 		static void AddSelectableMenuItem(int item) { addRequest(&Interface::internalAddSelectableMenuItem, item).get(); }
-		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate){ addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompositionText),  std::move(guiCandidateTexts), SelectedCandidate).get(); }
-		static void UpdateInputBox(int id, std::wstring newText) { addRequest(&Interface::internalUpdateInputBox,id ,std::move(newText)).get(); }
+		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate){ addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompositionText), imeCursorPos,  std::move(guiCandidateTexts), SelectedCandidate).get(); }
+		static void UpdateInputBox(int id, std::wstring newText, int cursorPos) { addRequest(&Interface::internalUpdateInputBox,id ,std::move(newText), cursorPos).get(); }
 		static int GetInputBoxLineCount(int ID) { return addRequest(&Interface::internalGetInputBoxLineCount, ID).get(); }
 		static Util::RECTF GetInputBoxLineRect(int ID, int LineIndex) { return addRequest(&Interface::internalGetInputBoxLineRect, ID, LineIndex).get(); }
 		static Util::Vector2 GetInputBoxCursorPos(int ID) { return addRequest(&Interface::internalGetInputBoxCursorPos, ID).get(); }
@@ -191,10 +191,10 @@ namespace GraphicsInterface
 		static void internalAddSelectableMenuItem(int item);
 		static void internalClearSelectableMenuItems();
 		static void internalSetGUISelection(int Index);
-		static void internalAddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate);
+		static void internalAddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate);
 		static void internalRotateControl(int ID, float rotation);
 		static bool internalControl(int ID);
-		static void internalUpdateInputBox(int ID, const std::wstring& CurrentInput);
+		static void internalUpdateInputBox(int ID, const std::wstring& CurrentInput, int cursorPos);
 		static int internalGetInputBoxLineCount(int ID);
 		static Util::RECTF internalGetInputBoxLineRect(int ID, int LineIndex);
 		static Util::Vector2 internalGetInputBoxCursorPos(int ID);

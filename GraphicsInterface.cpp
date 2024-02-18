@@ -600,7 +600,7 @@ bool Interface::internalControl(int ID)
 	{
 		for (GUI* item : internalGetGUIItemsByLayer(it->layerLevel))
 		{
-			if (item->GetID() == ID){return true;}
+			if (item->GetID() == ID) { return true; }
 		}
 	}
 	return false;
@@ -621,12 +621,18 @@ vector<GUI*> Interface::internalGetControls(int ID)
 }
 
 
-void Interface::internalAddIMEOverlay(int ID, wstring IMEcompositionText, vector<wstring> guiCandidateTexts, int SelectedCandidate)
+void Interface::internalAddIMEOverlay(int ID, wstring IMEcompositionText, int imeCursorPos, vector<wstring> guiCandidateTexts, int SelectedCandidate)
 {
 	GUI_InputBox* box = static_cast<GUI_InputBox*>(internalGetControl(ID));
 	box->IMETextItems.clear();
 	Util::VectorAddRange(box->IMETextItems, internalCreateGUIText(IMEcompositionText, 0, InputTextColor, box->GetCursorPos(), -1, WHITE, RED, false, -1));
-	//IME CURSOR Util::VectorAddRange(InputControls, internalCreateGUIText(((GetTickCount64() % 1000 < 500) ? CursorDesign : L""), 0, InputTextColor, Util::Vector2(imecursorCompRect.Right, currentPosition.Y), -1, WHITE, TRANSPARENT_COLOR, false, -1));
+
+	if (GetTickCount64() % (2 * box->CursorBlinkInterval) < box->CursorBlinkInterval)
+	{
+		wstring cursorSubstring = IMEcompositionText.substr(0, imeCursorPos);
+		Util::RECTF cursorRect = GetSubStringRectN(IMEcompositionText, cursorSubstring, fontHeight, 0, box->GetCursorPos(), false, 0);
+		Util::VectorAddRange(box->IMETextItems, internalCreateGUIText(CursorDesign, 0, InputTextColor, cursorRect.GetTopRight(), -1, WHITE, TRANSPARENT_COLOR, false, -1));
+	}
 	float MaxLength = 0;
 	for (int i = 0; i < guiCandidateTexts.size(); i++)
 	{
@@ -640,7 +646,7 @@ void Interface::internalAddIMEOverlay(int ID, wstring IMEcompositionText, vector
 }
 
 
-void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
+void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput, int cursorPos)
 {
 	GUI_InputBox* box = static_cast<GUI_InputBox*>(internalGetControl(ID));
 	box->GUITexts.clear();
@@ -650,7 +656,9 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
 	vector<wstring> lines;
 	wstring remainingText = CurrentInput;
 	Util::Vector2 currentPosition = box->CenterInput ? Util::Vector2(box->GetRectN().GetCenter().X, box->GetRectN().Top) : Util::Vector2(box->GetRectN().Left, box->GetRectN().Top);
-
+	int accumulatedLength = 0;
+	int cursorLine = 0;
+	int cursorIndex = -1;
 	while (!remainingText.empty())
 	{
 		Util::RECTF textRect = GetStringRectN(remainingText, fontHeight, 0, currentPosition, false);
@@ -658,11 +666,18 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
 		if (textWidth <= box->GetRectN().GetSize().X)
 		{
 			lines.push_back(remainingText);
+			if (cursorPos != -1)
+			{
+				if (cursorIndex == -1 && cursorPos <= accumulatedLength + remainingText.size())
+				{
+					cursorIndex = cursorPos - accumulatedLength;
+				}
+			}
 			break;
 		}
 		else
 		{
-			size_t splitPos = remainingText.size();
+			int splitPos = static_cast<int>(remainingText.size());
 			while (splitPos > 0)
 			{
 				wstring testLine = remainingText.substr(0, splitPos);
@@ -672,6 +687,15 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
 				{
 					lines.push_back(testLine);
 					remainingText = remainingText.substr(splitPos);
+					if (cursorPos != -1)
+					{
+						accumulatedLength += splitPos;
+						if (cursorIndex == -1 && cursorPos <= accumulatedLength)
+						{
+							cursorIndex = cursorPos - (accumulatedLength - splitPos);
+						}
+						else { cursorLine++; }
+					}
 					break;
 				}
 				splitPos--;
@@ -688,6 +712,12 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
 		if (box->CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(lines[i], fontHeight, 0, inputRect.GetTopLeft())); }
 		if (inputRect.Bottom >= box->GetRectN().Bottom) { break; }
 		box->GUITexts.push_back(GUIText(-1, lines[i], inputRect, box->TextColor, 0, TRANSPARENT_COLOR, box->TextColor, -1));
+		if (cursorPos != -1 && i == cursorLine)
+		{
+			wstring cursorSubstring = lines[i].substr(0, cursorIndex);
+			Util::RECTF cursorRect = GetSubStringRectN(lines[i], cursorSubstring, fontHeight, 0, inputRect.GetTopLeft(), false, 0);
+			box->cursorPos = Util::Vector2(cursorRect.Right, cursorRect.Top);
+		}
 		if (box->CenterInput) { leftMost = min(leftMost, inputRect.Left); }
 		rightMost = max(rightMost, inputRect.Right);
 	}
@@ -722,7 +752,7 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
 			}
 			leftMost = max(leftMost, boxRect.Left);
 			rightMost = min(rightMost, boxRect.Right);
-			box->InputBox = GUIBox(TextBoxColor, Util::RECTF(leftMost, boxRect.Top, rightMost, min(boxRect.Top + max(lines.size(), 1) * (1.5 * LineHeight), boxRect.Bottom)), 0, -1, TextBoxColor);
+			box->InputBox = GUIBox(TextBoxColor, Util::RECTF(leftMost, boxRect.Top, rightMost, min(boxRect.Top + max(lines.size(), 1) * (1.5f * LineHeight), boxRect.Bottom)), 0, -1, TextBoxColor);
 		}
 		else
 		{
@@ -730,7 +760,7 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput)
 		}
 	}
 
-	if (box->DisplayCursor)
+	if (box->DisplayCursor && cursorPos != -1)
 	{
 		if (GetTickCount64() % (2 * box->CursorBlinkInterval) < box->CursorBlinkInterval) { box->Cursor = GUIText(-1, CursorDesign, GetStringRectN(CursorDesign, fontHeight, 0, box->GetCursorPos(), false), box->TextColor, 0, TRANSPARENT_COLOR, box->TextColor, -1); }
 	}

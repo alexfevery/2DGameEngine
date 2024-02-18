@@ -111,9 +111,9 @@ public:
 	GUI(Util::RECTF rect, int selectionIndex = -1);
 
 	int GetID() const { return ID; }
-	bool IsSelectable() { return SelectionIndex != -1; }
-	Util::RECTF GetRectN() { return RectN; }
-	Util::RECTF GetRectP() { return NormalizedToPx(RectN); }
+	bool IsSelectable() const { return SelectionIndex != -1; }
+	Util::RECTF GetRectN() const { return RectN; }
+	Util::RECTF GetRectP() const { return NormalizedToPx(RectN); }
 	void SetRectN(Util::RECTF rectN){RectN = rectN;}
 	void SetRotation(float rot) { rotation = rot; }
 	virtual bool IsHovered(Util::Vector2) = 0;
@@ -137,7 +137,7 @@ struct GUI_Image : public GUI
 {
 	GUI_Image(const std::wstring& imagePath, Util::Vector2 pos, float size, int SelectionIndex);
 
-	void DeleteImage();
+	void DeleteImage() const;
 
 	bool IsHovered(Util::Vector2 MousePosClient) override;
 	Util::RECTF GetPhysicsRect();
@@ -192,15 +192,15 @@ struct GUI_InputBox : public GUI {
 
 	Util::Vector2 GetCursorPos()
 	{
-		return GUITexts.size()> 0?GUITexts.back().GetRectN().GetTopRight():CenterInput?Util::Vector2(RectN.GetCenter().X,RectN.Top):RectN.GetTopLeft();
+		return GUITexts.size()> 0? cursorPos :CenterInput?Util::Vector2(RectN.GetCenter().X,RectN.Top):RectN.GetTopLeft();
 	}
 
-	int GetLineCount()
+	int GetLineCount() const
 	{
-		return GUITexts.size();
+		return static_cast<int>(GUITexts.size());
 	}
 
-	Util::RECTF GetLineRect(int LineIndex)
+	Util::RECTF GetLineRect(int LineIndex) const
 	{
 		return GUITexts[LineIndex].GetRectN();
 	}
@@ -213,6 +213,7 @@ struct GUI_InputBox : public GUI {
 	bool CenterInput = true;
 	D2D1::ColorF TextColor;
 	D2D1::ColorF BoxColor;
+	Util::Vector2 cursorPos;
 	bool DisplayCursor = true;
 	bool AllowWrap = true;
 	bool DynamicBox = false;

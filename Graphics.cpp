@@ -80,7 +80,7 @@ GUI_Image::GUI_Image(const std::wstring& imagePath, Util::Vector2 pos, float siz
 	RectN = Util::RECTF(RectN.Left - pixelSizeNCenter.X, RectN.Top - pixelSizeNCenter.Y, RectN.Left + pixelSizeNCenter.X, RectN.Top + pixelSizeNCenter.Y);
 }
 
-void GUI_Image::DeleteImage()
+void GUI_Image::DeleteImage() const
 {
 	delete RenderBuffer::MouseHoverBitmaps[imagePath];
 	RenderBuffer::MouseHoverBitmaps.erase(imagePath);
@@ -406,7 +406,7 @@ void GUIText::Render(ID2D1RenderTarget* Target)
 Util::Vector2 GetTextDimensionsP(const wstring& text, int fontHeight, int fontModifier)
 {
 	DWRITE_TEXT_METRICS textMetrics = {};
-	IDWriteFactory* factoryInstance;
+	IDWriteFactory* factoryInstance = NULL;
 	if (!pDWriteFactory) { Util_D2DCall(DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&factoryInstance))); }
 	else { factoryInstance = pDWriteFactory; }
 	IDWriteTextFormat* pTextFormat = nullptr;

@@ -128,19 +128,11 @@ LRESULT CALLBACK ProcessWindowMessage(HWND m_hwnd, UINT msg, WPARAM wParam, LPAR
 		}
 		break;
 	case WM_CLOSE:
-		if (pThis->DestroyWindowFlag)
-		{
-			DestroyWindow(pThis->m_hwnd);
-			break;
-		}
-		if (pThis->onClose) { pThis->onClose(); }
+		if (!pThis->onClose || pThis->onClose()){DestroyWindow(pThis->m_hwnd);}
 		return 0;
 	case WM_DESTROY:
-		if (pThis->DestroyWindowFlag)
-		{
 			PostQuitMessage(0);
 			break;
-		}
 		return 0;
 	case WM_SIZE:
 	case WM_MOVE:
@@ -299,8 +291,7 @@ void GameWindow2D::HideWindow()
 void GameWindow2D::CloseWindow()
 {
 	WindowOpen = false;
-	DestroyWindowFlag = true;
-	SendMessage(m_hwnd, WM_CLOSE, 0, 0);
+	SendMessage(m_hwnd, WM_DESTROY, 0, 0);
 }
 
 void GameWindow2D::updateTrayIconData(HICON hIcon, wstring title, vector<wstring> menuItems, std::function<void(int)> callback)

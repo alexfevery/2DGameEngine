@@ -11,10 +11,15 @@ template class KeyPressAwaiter<PressType::DOWN>;
 template class KeyPressAwaiter<PressType::UP>;
 
 
-void Input::CloseOverlay()
+void Input::DestroyOverlay()
 {
 	if (hInputWindow == NULL) { return; }
 	SendMessage(hInputWindow, WM_CLOSE, 0, 0);
+}
+
+void Input::RequestCloseWindow()
+{
+	SignalCloseWindow = true;
 }
 
 void Input::UpdateOverlayPosition(HWND hostWindowHandle)
@@ -75,6 +80,7 @@ void Input::AttachToWindow(HWND HostWindow)
 		}
 		// Unregister the window class
 		UnregisterClass(CLASS_NAME, GetModuleHandle(nullptr));
+		hInputWindow = NULL;
 		}).detach();
 }
 
@@ -85,9 +91,11 @@ LRESULT CALLBACK Input::ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam
 	switch (msg)
 	{
 	case WM_CLOSE:
-		SignalCloseWindow = true;
+		DestroyWindow(m_hwnd);
 		return 0;
-
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return 0;
 	case WM_SYSKEYDOWN:
 	case WM_SYSKEYUP:
 		PostMessage(GetParent(m_hwnd), msg, wParam, lParam);
@@ -112,6 +120,8 @@ LRESULT CALLBACK Input::ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam
 		return TRUE;
 		break;
 	case WM_LBUTTONDOWN:
+	case WM_RBUTTONDOWN:
+		SetForegroundWindow(GetParent(m_hwnd));
 		SetFocus(hEdit);
 		break;
 	case WM_COMMAND:
@@ -201,9 +211,20 @@ wstring Input::GetInputText()
 	return text;
 }
 
+int Input::GetCursorPosition()
+{
+	DWORD pos;
+	SendMessageW(hEdit, EM_GETSEL, reinterpret_cast<WPARAM>(&pos), NULL);
+	int textLength = GetWindowTextLength(hEdit);
+	if (textLength == 0) return 0;
+	if (pos > static_cast<DWORD>(textLength)) return textLength;
+	return static_cast<int>(pos);
+}
+
 template<PressType Type>
 bool Input::KeyPressAwaiter<Type>::CheckCondition()
 {
+	if (GetForegroundWindow() != hInputWindow) { return false; }
 	KMState.CaptureInput();
 	vector<int> Keys;
 	if (Type == PressType::PRESS) { Keys = KMState.GetKeysPressed(); }
@@ -243,6 +264,7 @@ bool Input::KeyPressAwaiter<Type>::CheckCondition()
 template<ClickType Type>
 bool Input::MouseClickAwaiter<Type>::CheckCondition()
 {
+	if (GetForegroundWindow() != hInputWindow) { return false; }
 	KMState.CaptureInput();
 	if (Util::PosDistanceClientArea(hInputWindow, KeyboardMouseState::GetMousePos()) == Util::Vector2(0, 0))
 	{
@@ -286,6 +308,7 @@ bool Input::MouseClickAwaiter<Type>::CheckCondition()
 
 bool Input::TextEntryAwaiter::CheckCondition()
 {
+	if (GetForegroundWindow() != hInputWindow) { return true; }
 	KMState.CaptureInput();
 	if (g_onNextKeyDown && !KMState.GetKeysPressed().empty())
 	{
@@ -309,7 +332,7 @@ bool Input::TextEntryAwaiter::CheckCondition()
 			}
 		}
 	}
-	UserAction.InputState = ProcessTextInput();
+	TextState = ProcessTextInput();
 	return true;
 }
 
@@ -325,6 +348,7 @@ bool Input::IdleAwaiter::CheckCondition()
 
 bool Input::MouseWheelAwaiter::CheckCondition()
 {
+	if (GetForegroundWindow() != hInputWindow) { return false; }
 	int delta = KMState.GetLastMouseWheelDelta(true);
 	if (delta != 0)
 	{
@@ -342,6 +366,7 @@ bool Input::MouseWheelAwaiter::CheckCondition()
 
 bool Input::MouseMoveAwaiter::CheckCondition()
 {
+	if (GetForegroundWindow() != hInputWindow) { return false; }
 	Util::Vector2 delta = KMState.GetLastMouseDelta(true);
 	if (delta != Util::Vector2(0))
 	{
@@ -359,42 +384,50 @@ bool Input::MouseMoveAwaiter::CheckCondition()
 
 void Input::InputAwaiter::GetInputAsync(std::shared_ptr<std::promise<InputEvent>> sharedPromise, std::atomic<bool>* promiseFulfilled)
 {
-	Restart:
-	while (!Enabled || Util::GetTimeStamp() <= Timeout) 
-	{ 
-		if (promiseFulfilled->load()) { return; }
-		std::this_thread::sleep_for(std::chrono::milliseconds(CheckInterval)); 
-	}
-	SetInputText(UserAction.PrefillInputText, true, false);
-	SetFocus(hEdit);
-	UserAction.starttime = Util::GetTimeStamp();
-	while (!promiseFulfilled->load())
+Restart:
+	while (!Enabled || Util::GetTimeStamp() <= Timeout)
 	{
-		if (!Enabled) { goto Restart; }
-		if (SignalCloseWindow) { break; }
-		if (Interupt > 0 && Util::GetTimeStamp() >= Interupt)
-		{
-			UserAction.InputTimedOut = true;
-			bool expected = false;
-			if (promiseFulfilled->compare_exchange_strong(expected, true)) { sharedPromise->set_value(UserAction); }
-			break;
-		}
-		if (CheckCondition() && callback(UserAction))
-		{
-			bool expected = false;
-			if (promiseFulfilled->compare_exchange_strong(expected, true)) { sharedPromise->set_value(UserAction); }
-			break;
-		}
+		if (promiseFulfilled->load()) { return; }
 		std::this_thread::sleep_for(std::chrono::milliseconds(CheckInterval));
 	}
+	SetInputText(UserAction.PrefillInputText, true, false);
+	if (GetForegroundWindow() == GetParent(hInputWindow)) { SetFocus(hEdit); }
+	UserAction.starttime = Util::GetTimeStamp();
+	try
+	{
+		while (!promiseFulfilled->load())
+		{
+			if (!Enabled) { goto Restart; }
+			if (SignalCloseWindow) { break; }
+			if (Interupt > 0 && Util::GetTimeStamp() >= Interupt)
+			{
+				UserAction.InputTimedOut = true;
+				bool expected = false;
+				if (promiseFulfilled->compare_exchange_strong(expected, true)) { sharedPromise->set_value(UserAction); }
+				break;
+			}
+			if (CheckCondition() && callback(UserAction))
+			{
+				bool expected = false;
+				if (promiseFulfilled->compare_exchange_strong(expected, true)) { sharedPromise->set_value(UserAction); }
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(CheckInterval));
+		}
+	}
+	catch(...)
+	{
+		Exception = std::current_exception();
+	}
 	bool expected = false;
-	if (promiseFulfilled->compare_exchange_strong(expected, true)) { sharedPromise->set_value({}); } 
+	if (promiseFulfilled->compare_exchange_strong(expected, true)) { sharedPromise->set_value({}); }
 }
 
 
 InputEvent Input::InputAwaiter::GetInput()
 {
 Restart:
+	SignalCloseWindow = false;
 	while (!Enabled || Util::GetTimeStamp() <= Timeout) { std::this_thread::sleep_for(std::chrono::milliseconds(CheckInterval)); }
 	SetInputText(UserAction.PrefillInputText, true, false);
 	SetFocus(hEdit);
@@ -402,11 +435,7 @@ Restart:
 	while (true)
 	{
 		if (!Enabled) { goto Restart; }
-		if (SignalCloseWindow)
-		{
-			SignalCloseWindow = false;
-			throw SignalCloseWindowException();
-		}
+		if (SignalCloseWindow){throw SignalCloseWindowException();}
 		if (Interupt > 0 && Util::GetTimeStamp() >= Interupt)
 		{
 			UserAction.InputTimedOut = true;
@@ -421,9 +450,8 @@ Restart:
 TextInputState Input::ProcessTextInput()
 {
 	TextInputState CurrentTextInputState;
-	CurrentInputText = GetInputText();
-	CurrentTextInputState.CurrentInputText = CurrentInputText;
-
+	CurrentTextInputState.CurrentInputText = GetInputText();
+	CurrentTextInputState.CursorPosition = GetCursorPosition();
 	if (IMEComposing && hImc != NULL)
 	{
 		IMEActivated = true;
@@ -436,8 +464,7 @@ TextInputState Input::ProcessTextInput()
 		{
 			IMECompositionText = NewCompositionText;
 			CurrentTextInputState.IMEState->IMECompositionText = NewCompositionText;
-			//CurrentTextInputState.IMECursorPos = ImmGetCompositionString(hImc, GCS_CURSORPOS, NULL, 0);
-			CurrentTextInputState.IMEState->IMECursorPos = static_cast<int>(NewCompositionText.size());
+			CurrentTextInputState.IMEState->IMECursorPos = ImmGetCompositionString(hImc, GCS_CURSORPOS, NULL, 0);
 			CANDIDATELIST* pCandidateList;
 			DWORD dwSize = ImmGetCandidateList(hImc, 0, NULL, 0);
 			pCandidateList = (CANDIDATELIST*) new char[dwSize + sizeof(wchar_t)]; // Allocate extra space
