@@ -11,8 +11,8 @@ namespace GraphicsInterface
 
 	struct OptionStruct
 	{
-		std::wstring Prompt; 
-		std::wstring Click; 
+		std::wstring Prompt;
+		std::wstring Click;
 		std::vector<std::wstring> optionnames;
 		int OriginalSelection;
 	};
@@ -32,7 +32,7 @@ namespace GraphicsInterface
 		Layer(int level, float position = 0.0f, bool visible = true, bool interactive = true) : layerLevel(level), lastVerticalPosition(position), isVisible(visible), isInteractive(interactive) {}
 	};
 
-	
+
 	const int BackIndex = 12000;
 	const int ContinueIndex = 12001;
 	const float LineHeight = .04f;
@@ -47,7 +47,14 @@ namespace GraphicsInterface
 	private:
 		static inline std::vector<Layer> layerStack = { Layer(0) };
 
+		static inline std::thread* dedicatedThread = nullptr;
+		static inline std::mutex mtx;
+		static inline std::queue<std::function<void()>> requests;
+		static inline std::condition_variable cv;
 
+		static inline std::mutex chainMtx;
+		static inline std::thread::id chainLockOwner = std::thread::id();
+		static inline std::condition_variable chainCv;
 
 	private:
 		template<typename F, typename... Args>
@@ -59,7 +66,15 @@ namespace GraphicsInterface
 			{
 				dedicatedThread = new std::thread(&Interface::processQueue);
 			}
-			
+
+
+			std::unique_lock<std::mutex> chainLock(chainMtx);
+			if (chainLockOwner != std::thread::id() && std::this_thread::get_id() != chainLockOwner)
+			{
+				Util_Assert(chainCv.wait_for(chainLock, std::chrono::milliseconds(500), [] { return chainLockOwner == std::thread::id(); }), L"Graphics Interface Error: Chain lock timed out without being released");
+			}
+			chainLock.unlock();
+
 			using return_type = decltype(f(args...));
 			auto task = std::make_shared<std::packaged_task<return_type()>>(
 				std::bind(std::forward<F>(f), std::forward<Args>(args)...)
@@ -85,8 +100,8 @@ namespace GraphicsInterface
 					request = requests.front();
 					requests.pop();
 				}
-				request(); 
-				if (!RenderEngineInitialized) 
+				request();
+				if (!RenderEngineInitialized)
 				{
 					delete dedicatedThread;
 					dedicatedThread = nullptr;
@@ -94,22 +109,33 @@ namespace GraphicsInterface
 				}
 			}
 		}
-		static inline std::thread* dedicatedThread = nullptr;
-		static inline std::mutex mtx;
-		static inline std::queue<std::function<void()>> requests;
-		static inline std::condition_variable cv;
 
 	public:
+
+		static void BeginChainRequests()
+		{
+			std::unique_lock<std::mutex> lock(chainMtx);
+			Util_Assert(chainLockOwner == std::thread::id(),L"Graphics Interface Error: Multiple Simultaneous chain locks attempted");
+			chainLockOwner = std::this_thread::get_id();
+		}
+		static void EndChainRequests()
+		{
+			std::unique_lock<std::mutex> lock(chainMtx);
+			Util_Assert(chainLockOwner == std::this_thread::get_id(), L"Graphics Interface Error: Chain lock release attempted on wrong thread");
+			chainLockOwner = std::thread::id();
+			chainCv.notify_all();
+		}
+
+
 		static GraphicsState* CreateFrame() { return addRequest(&Interface::internalCreateFrame).get(); }
-		static void SetPauseRendering(bool Pause){ return addRequest(&Interface::internalSetPauseRendering,Pause).get(); }
-		static int FadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align = true, int fontmodifier = 0) { return addRequest(&Interface::internalFadeInFreeText, text, startingColor, endingColor, duration, xpos, ypos, align, fontmodifier).get(); }
+		static void SetPauseRendering(bool Pause) { return addRequest(&Interface::internalSetPauseRendering, Pause).get(); }
 		static int WriteFreeText(std::wstring text, D2D1::ColorF color, float xpos, float ypos, bool aligncenter = true, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1) { return addRequest(&Interface::internalWriteFreeText, std::move(text), color, xpos, ypos, aligncenter, Selectionindex, FontModifier, selectioncolor, Silhouette, textID).get(); }
 		static int WriteOrderedText(std::wstring text, D2D1::ColorF color, float HorizontalStartPoint = 0, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1) { return addRequest(&Interface::internalWriteOrderedText, std::move(text), color, HorizontalStartPoint, Selectionindex, FontModifier, selectioncolor, Silhouette, textID).get(); }
-		static void AddContinueButton(std::wstring Text = L"Continue") { addRequest(&Interface::internalAddContinueButton, std::move(Text)).get(); }
-		static void AddBackButton(std::wstring Text = L"Go back") { addRequest(&Interface::internalAddBackButton, std::move(Text)).get(); }
+		static int AddContinueButton(std::wstring Text = L"Continue") { return addRequest(&Interface::internalAddContinueButton, std::move(Text)).get(); }
+		static int AddBackButton(std::wstring Text = L"Go back") { return addRequest(&Interface::internalAddBackButton, std::move(Text)).get(); }
 		static void ClearTextBoxes() { addRequest(&Interface::internalClearTextBoxes).get(); }
 		static int CreateBox(float left, float top, float right, float bottom, D2D1::ColorF color, int width = 0, int selectionIndex = -1, D2D1::ColorF selectionColor = TRANSPARENT_COLOR) { return addRequest(&Interface::internalCreateBox, left, top, right, bottom, color, width, selectionIndex, selectionColor).get(); }
-		static int CreateInputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor, bool centerInput, bool wrapText, bool dynamicSizing, int selectionIndex = -1) {return addRequest(&Interface::internalCreateInputBox, rect, textColor, boxColor, centerInput, wrapText, dynamicSizing, selectionIndex).get();}		
+		static int CreateInputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor, bool centerInput, bool wrapText, bool dynamicSizing, int selectionIndex = -1) { return addRequest(&Interface::internalCreateInputBox, rect, textColor, boxColor, centerInput, wrapText, dynamicSizing, selectionIndex).get(); }
 		static void ClearImages() { addRequest(&Interface::internalClearImages).get(); }
 		static void ClearText() { addRequest(&Interface::internalClearText).get(); }
 		static int AddGUIImage(std::wstring ImagePath, Util::Vector2 pos, float size, int SelectionIndex = -1) { return addRequest(&Interface::internalAddGUIImage, std::move(ImagePath), pos, size, SelectionIndex).get(); }
@@ -140,13 +166,31 @@ namespace GraphicsInterface
 		static int GetCurrentSelectableMenuItem() { return addRequest(&Interface::internalGetCurrentSelectableMenuItem).get(); }
 		static void ClearSelectableMenuItems() { addRequest(&Interface::internalClearSelectableMenuItems).get(); }
 		static void AddSelectableMenuItem(int item) { addRequest(&Interface::internalAddSelectableMenuItem, item).get(); }
-		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate){ addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompositionText), imeCursorPos,  std::move(guiCandidateTexts), SelectedCandidate).get(); }
-		static void UpdateInputBox(int id, std::wstring newText, int cursorPos) { addRequest(&Interface::internalUpdateInputBox,id ,std::move(newText), cursorPos).get(); }
+		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate) { addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompositionText), imeCursorPos, std::move(guiCandidateTexts), SelectedCandidate).get(); }
+		static void UpdateInputBox(int id, std::wstring newText, int cursorPos) { addRequest(&Interface::internalUpdateInputBox, id, std::move(newText), cursorPos).get(); }
 		static int GetInputBoxLineCount(int ID) { return addRequest(&Interface::internalGetInputBoxLineCount, ID).get(); }
 		static Util::RECTF GetInputBoxLineRect(int ID, int LineIndex) { return addRequest(&Interface::internalGetInputBoxLineRect, ID, LineIndex).get(); }
 		static Util::Vector2 GetInputBoxCursorPos(int ID) { return addRequest(&Interface::internalGetInputBoxCursorPos, ID).get(); }
 		static bool Control(int ID) { return addRequest(&Interface::internalControl, ID).get(); }
 
+		static int FadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align = true, int fontmodifier = 0)
+		{
+			const int steps = 30;
+			int textID = WriteFreeText(text, startingColor, xpos, ypos, align, -1, fontmodifier, NULL, false, -1);
+			for (int i = 0; i <= steps; ++i)
+			{
+				float t = static_cast<float>(i) / steps;
+				D2D1::ColorF currentColor = D2D1::ColorF(
+					Util::lerp(startingColor.r, endingColor.r, t),
+					Util::lerp(startingColor.g, endingColor.g, t),
+					Util::lerp(startingColor.b, endingColor.b, t),
+					Util::lerp(startingColor.a, endingColor.a, t)
+				);
+				ChangeTextColor(textID, currentColor);
+				std::this_thread::sleep_for(std::chrono::milliseconds(duration / steps));
+			}
+			return textID;
+		}
 
 
 	private:
@@ -154,11 +198,10 @@ namespace GraphicsInterface
 		static GUI* internalGetControl(int ID);
 		static std::vector<GUI*> internalGetControls(int ID);
 		static void internalSetPauseRendering(bool pause);
-		static int internalFadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align = true, int fontmodifier = 0);
 		static int internalWriteFreeText(std::wstring text, D2D1::ColorF color, float xpos, float ypos, bool aligncenter = true, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1);
 		static int internalWriteOrderedText(std::wstring text, D2D1::ColorF color, float HorizontalStartPoint = 0, int Selectionindex = -1, int FontModifier = 0, D2D1::ColorF selectioncolor = NULL, bool Silhouette = false, int textID = -1);
-		static void internalAddContinueButton(std::wstring Text = L"Continue");
-		static void internalAddBackButton(std::wstring Text = L"Go back");
+		static int internalAddContinueButton(std::wstring Text = L"Continue");
+		static int internalAddBackButton(std::wstring Text = L"Go back");
 		static void internalClearTextBoxes();
 		static int internalCreateBox(float left, float top, float right, float bottom, D2D1::ColorF color, int width = 0, int selectionIndex = -1, D2D1::ColorF selectionColor = TRANSPARENT_COLOR);
 		static int internalCreateInputBox(Util::RECTF rect, D2D1::ColorF textColor, D2D1::ColorF boxColor, bool centerInput, bool wrapText, bool dynamicSizing, int selectionIndex = -1);
@@ -182,7 +225,7 @@ namespace GraphicsInterface
 		static int internalPopLayer();
 		static void internalPopAllLayers();
 		static int internalGetMouseHoverIndex(Util::Vector2 mousePosC);
-		static int internalRotateSelectableMenuItems(int rotateBy,bool allowWraparound);
+		static int internalRotateSelectableMenuItems(int rotateBy, bool allowWraparound);
 		static void internalRotateSelectableMenuItemsToValue(int value);
 		static bool internalSelectableMenuItemsAtStart();
 		static bool internalSelectableMenuItemsAtEnd();

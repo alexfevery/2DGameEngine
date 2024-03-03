@@ -29,94 +29,107 @@ void DemoMenu::Show()
 
 	int ActivateTypingSelectionId = 6;
 	int ActivateTypingID = Interface::WriteFreeText(L"Click To Type!", BLUE, .5, .5, true, ActivateTypingSelectionId, 0, GREEN);
+	int inputBoxID = -1;
+	int ItemSelection = -1;
+	bool TextSubmitted = false;
 
-	IdleAwaiter a0 = IdleAwaiter(0, false, 0);
-	MouseClickAwaiter a2 = MouseClickAwaiter<ClickType::DOWN>(0, false, 0, { {VK_LBUTTON} });
-	KeyPressAwaiter KeyAwaiter = KeyPressAwaiter<PressType::DOWN>(0, false, 0, { {VK_LEFT}, {VK_RIGHT},{VK_RETURN} });
-	TextEntryAwaiter Text = TextEntryAwaiter(0, true, 0);
 
-	a0.SetCallback([this, Image1, &world, &girlBox](InputEvent& event) {
+	IdleAwaiter BackgroundEffects = IdleAwaiter(0, false, 0);
+	MouseClickAwaiter MouseClick = MouseClickAwaiter<ClickType::DOWN>(0, false, 0, { {VK_LBUTTON} });
+	KeyPressAwaiter KeyPress = KeyPressAwaiter<PressType::DOWN>(0, false, 0, { {VK_LEFT}, {VK_RIGHT},{VK_RETURN},{VK_ESCAPE} });
+	BackgroundEffects.SetCallback([&](InputEvent& event) {
 		girlBox.RunPhysicsStep(world);
 		Interface::SetControlCenter(Image1, girlBox.GetPosition());
 		Interface::RotateControl(Image1, girlBox.GetOrientation());
-		event.SelectedIndex = Interface::GetMouseHoverIndex(event.MousePos);
-		if (event.SelectedIndex != -1)
+		int index = Interface::GetMouseHoverIndex(event.mousePos);
+
+		if (index != -1)
 		{
-			Interface::SetGUISelection(event.SelectedIndex);
-			if (this->GetMaintainSelectionAfterMouseHover()) { Interface::RotateSelectableMenuItemsToValue(event.SelectedIndex); }
+			Interface::SetGUISelection(index);
+			if (this->GetMaintainSelectionAfterMouseHover()) { Interface::RotateSelectableMenuItemsToValue(index); }
 		}
 		else
 		{
 			if (this->GetMaintainSelectionAfterMouseHover()) { Interface::SetGUISelection(Interface::GetCurrentSelectableMenuItem()); }
 			else { Interface::SetGUISelection(-1); }
 		}
-		G1->SetCursorSelectableHovered(event.SelectedIndex != -1);  //Change cursor to hand if over selectable item otherwise arrow.
+		G1->SetCursorSelectableHovered(index != -1);  //Change cursor to hand if over selectable item otherwise arrow.
+
+		if (Input::InputTextEnabled())
+		{
+			Interface::BeginChainRequests();
+			if (!Interface::Control(inputBoxID)) { inputBoxID = Interface::CreateInputBox(Util::RECTF(.35f, .5f, .65f, .6f), WHITE, BLACK, true, true, true); }
+			Interface::UpdateInputBox(inputBoxID, event.TextState.CurrentInputText, event.TextState.IMEState.has_value() ? -1 : event.TextState.CursorPosition);
+			if (event.TextState.IMEState.has_value()) { Interface::AddIMEOverlay(inputBoxID, event.TextState.IMEState->IMECompositionText, event.TextState.IMEState->IMECursorPos, event.TextState.IMEState->guiCandidateTexts, event.TextState.IMEState->SelectedCandidate); }
+			Interface::EndChainRequests();
+		}
 		return false;
 		});
 
-	a2.SetCallback([this,&KeyAwaiter,ActivateTypingID,ActivateTypingSelectionId,&Text](InputEvent& event) {
-		event.SelectedIndex = Interface::GetMouseHoverIndex(event.MousePos);
-		if (event.SelectedIndex == -1) { return false; }
-		if(event.SelectedIndex == ActivateTypingSelectionId)
+	MouseClick.SetCallback([&](InputEvent& event) {
+		ItemSelection = Interface::GetMouseHoverIndex(event.mousePos);
+		if(ItemSelection == ActivateTypingSelectionId)
 		{
 			this->EnableMaintainSelectionAfterMouseHover(false);
-			KeyAwaiter.SetEnabled(false);
-			Text.SetEnabled(true);
+			Interface::RemoveControl(ActivateTypingID);
+			Input::EnableInputText(L"Text");
 			return false;
+		}
+		if (ItemSelection == -1)
+		{ 
+			Interface::RemoveControl(inputBoxID);
+			ActivateTypingID = Interface::WriteFreeText(L"Click To Type!", BLUE, .5f, .5f, true, ActivateTypingSelectionId, 0, GREEN);
+			Input::DisableInputText();
+			return false; 
 		}
 		return true;
 		});
 
-	KeyAwaiter.SetCallback([this](InputEvent& event) {
-		if (Util::VectorContains(event.vk_codes, VK_LEFT)) { Interface::SetGUISelection(Interface::RotateSelectableMenuItems(-1, false)); }
-		if (Util::VectorContains(event.vk_codes, VK_RIGHT)) { Interface::SetGUISelection(Interface::RotateSelectableMenuItems(1, false)); }
-		if (Util::VectorContains(event.vk_codes, VK_RETURN))
+	KeyPress.SetCallback([&](InputEvent& event) {
+		if (!Input::InputTextEnabled())
 		{
-			event.SelectedIndex = Interface::GetCurrentSelectableMenuItem();
-			if (event.SelectedIndex != -1) { return true; }
-		}
-		return false;
-		});
-
-	//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-	//TO DO: IMPROVE PERFORMANCE OF INPUT BOX RENDERING.  IME FLICKERS. 
-	//	
-	//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-	Text.SetPrefill(L"Text");
-	int inputBoxID = -1;
-	Text.SetCallback([&Text,&KeyAwaiter, &inputBoxID,&ActivateTypingID, ActivateTypingSelectionId](InputEvent& event) {
-		if (event.ActionType == InputResultType::TEXTSUBMIT) { return true; }
-		if (event.ActionType == InputResultType::INPUTCANCEL)
-		{
-			Interface::RemoveControl(inputBoxID);
-			ActivateTypingID = Interface::WriteFreeText(L"Click To Type!", BLUE, .5f, .5f, true, ActivateTypingSelectionId, 0, GREEN);
-			KeyAwaiter.SetEnabled(true);
-			Text.SetEnabled(false);
+			if (event.ReturnedVKIsOnly(VK_LEFT)) { Interface::SetGUISelection(Interface::RotateSelectableMenuItems(-1, false)); }
+			if (event.ReturnedVKIsOnly(VK_RIGHT)) { Interface::SetGUISelection(Interface::RotateSelectableMenuItems(1, false)); }
+			if (event.ReturnedVKIsOnly(VK_RETURN))
+			{
+				ItemSelection = Interface::GetCurrentSelectableMenuItem();
+				if (ItemSelection != -1) { return true; }
+			}
 			return false;
 		}
-		Interface::RemoveControl(ActivateTypingID);
-		if(!Interface::Control(inputBoxID)){inputBoxID = Interface::CreateInputBox(Util::RECTF(.35f, .5f, .65f, .6f), WHITE, BLACK, true, true, true);}
-		Interface::UpdateInputBox(inputBoxID, event.GetTextState().CurrentInputText, event.GetTextState().IMEState.has_value() ? -1 : event.GetTextState().CursorPosition);
-		if (event.GetTextState().IMEState.has_value()) { Interface::AddIMEOverlay(inputBoxID, event.GetTextState().IMEState->IMECompositionText, event.GetTextState().IMEState->IMECursorPos, event.GetTextState().IMEState->guiCandidateTexts, event.GetTextState().IMEState->SelectedCandidate); }
-		return false;
+		else
+		{
+			if (event.ReturnedVKIsOnly(VK_RETURN))
+			{
+				TextSubmitted = true;
+				return true;
+			}
+			if (event.ReturnedVKIsOnly(VK_ESCAPE))
+			{
+				Interface::RemoveControl(inputBoxID);
+				ActivateTypingID = Interface::WriteFreeText(L"Click To Type!", BLUE, .5f, .5f, true, ActivateTypingSelectionId, 0, GREEN);
+				Input::DisableInputText();
+				return false;
+			}
+		}
 		});
-	Text.SetEnabled(false);
+
 	try
 	{
-		InputEvent UserResponse = GetAllInputAsync({ &a0, &a2,&KeyAwaiter, &Text });
-		if (UserResponse.SelectedIndex == Option1SelectionID)
+		InputEvent UserResponse = GetAllInputAsync({ &BackgroundEffects, &MouseClick, &KeyPress });
+		if (ItemSelection == Option1SelectionID)
 		{
 			SetMenuResult(L"Selected 1");
 		}
-		else if (UserResponse.SelectedIndex == Option2SelectionID)
+		else if (ItemSelection == Option2SelectionID)
 		{
 			SetMenuResult(L"Selected 2");
 		}
-		else if (UserResponse.SelectedIndex == GirlSelectionId)
+		else if (ItemSelection == GirlSelectionId)
 		{
 			SetMenuResult(L"Girl Selected");
 		}
-		else if (UserResponse.ActionType == InputResultType::TEXTSUBMIT)
+		else if (TextSubmitted)
 		{
 			SetMenuResult(L"Entered Text: " + UserResponse.GetFinalInputText());
 		}

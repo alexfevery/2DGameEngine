@@ -67,6 +67,11 @@ public:
 
 	int TargetFrameRate = 60;
 	int FrameRate = 0;
+	int XPos;
+	int YPos;
+	int Width;
+	int Height;
+
 	LPCWSTR currentCursor = IDC_ARROW;
 	bool cursorEnabled = true;
 

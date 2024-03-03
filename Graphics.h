@@ -61,6 +61,7 @@ const D2D1::ColorF InputTextColor = WHITE;
 const D2D1::ColorF HighlightTextColor = RED;
 
 const int fontHeight = 72;
+inline D2D1::ColorF BackgroundColor = TRANSPARENT_COLOR;
 
 
 

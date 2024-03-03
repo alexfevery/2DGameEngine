@@ -135,8 +135,20 @@ LRESULT CALLBACK ProcessWindowMessage(HWND m_hwnd, UINT msg, WPARAM wParam, LPAR
 			break;
 		return 0;
 	case WM_SIZE:
+		if (pThis->onResize) 
+		{
+			pThis->Width = LOWORD(lParam);
+			pThis->Height = HIWORD(lParam);
+			pThis->onResize(pThis->Width, pThis->Height);
+		}
+		break;
 	case WM_MOVE:
-		if (pThis->onResize) { pThis->onResize(0, 0); }
+		if (pThis->onResize)
+		{
+			pThis->XPos = LOWORD(lParam);
+			pThis->YPos = HIWORD(lParam);
+			pThis->onResize(pThis->Width, pThis->Height);
+		}
 		break;
 	case WM_PAINT:
 	{

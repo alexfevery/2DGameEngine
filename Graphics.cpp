@@ -246,7 +246,7 @@ void LoadGUIImage(wstring imagePath)
 
 void RenderFrame(GraphicsState* Frame)
 {
-	if (!RenderEngineInitialized) { return; }
+	if (!RenderEngineInitialized || Frame == nullptr) { return; } //When rendering paused frame will be nullptr
 	if (RenderBuffer::RenderTarget && OutputBuffer::RenderTarget)
 	{
 		RenderBuffer::RenderTarget->BeginDraw();

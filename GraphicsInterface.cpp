@@ -160,34 +160,13 @@ int Interface::internalWriteOrderedText(wstring text, D2D1::ColorF color, float 
 }
 
 
-int Interface::internalFadeInFreeText(const std::wstring& text, D2D1::ColorF startingColor, D2D1::ColorF endingColor, int duration, float xpos, float ypos, bool align, int fontmodifier)
+int Interface::internalAddContinueButton(wstring Text)
 {
-	const int steps = 30;
-	int textID = internalWriteFreeText(text, startingColor, xpos, ypos, align, -1, fontmodifier, NULL, false, -1);
-
-	for (int i = 0; i <= steps; ++i)
-	{
-		float t = static_cast<float>(i) / steps;
-		D2D1::ColorF currentColor = D2D1::ColorF(
-			Util::lerp(startingColor.r, endingColor.r, t),
-			Util::lerp(startingColor.g, endingColor.g, t),
-			Util::lerp(startingColor.b, endingColor.b, t),
-			Util::lerp(startingColor.a, endingColor.a, t)
-		);
-		internalChangeTextColor(textID, currentColor);
-		std::this_thread::sleep_for(std::chrono::milliseconds(duration / steps));
-	}
-	return textID;
+	return internalWriteFreeText(Text, BLUE, .5f, .85f, true, ContinueIndex, 0, GREEN);
 }
-
-
-void Interface::internalAddContinueButton(wstring Text)
+int Interface::internalAddBackButton(wstring Text)
 {
-	internalWriteFreeText(Text, BLUE, .5f, .85f, true, ContinueIndex, 0, GREEN);
-}
-void Interface::internalAddBackButton(wstring Text)
-{
-	internalWriteFreeText(Text, BLUE, .5f, .9f, true, BackIndex, 0, GREEN);
+	return internalWriteFreeText(Text, BLUE, .5f, .9f, true, BackIndex, 0, GREEN);
 }
 
 void Interface::internalChangeTextColor(int ID, D2D1::ColorF newcolor)
@@ -320,6 +299,7 @@ std::vector<GUI*> Interface::internalGetGUIItemsByLayer(int layer)
 
 GraphicsState* Interface::internalCreateFrame()
 {
+	if (PauseRendering) { return nullptr; }
 	GraphicsState* g1 = new GraphicsState();
 	for (int layer = static_cast<int>(layerStack.size()) - 1; layer >= 0; layer--)
 	{
