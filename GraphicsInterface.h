@@ -71,7 +71,7 @@ namespace GraphicsInterface
 			std::unique_lock<std::mutex> chainLock(chainMtx);
 			if (chainLockOwner != std::thread::id() && std::this_thread::get_id() != chainLockOwner)
 			{
-				Util_Assert(chainCv.wait_for(chainLock, std::chrono::milliseconds(500), [] { return chainLockOwner == std::thread::id(); }), L"Graphics Interface Error: Chain lock timed out without being released");
+				Util_Assert(chainCv.wait_for(chainLock, std::chrono::milliseconds(1000), [] { return chainLockOwner == std::thread::id(); }), L"Graphics Interface Error: Chain lock timed out without being released");
 			}
 			chainLock.unlock();
 
@@ -115,7 +115,7 @@ namespace GraphicsInterface
 		static void BeginChainRequests()
 		{
 			std::unique_lock<std::mutex> lock(chainMtx);
-			Util_Assert(chainLockOwner == std::thread::id(),L"Graphics Interface Error: Multiple Simultaneous chain locks attempted");
+			Util_Assert(chainLockOwner == std::thread::id(), L"Graphics Interface Error: Multiple Simultaneous chain locks attempted");
 			chainLockOwner = std::this_thread::get_id();
 		}
 		static void EndChainRequests()
@@ -166,8 +166,8 @@ namespace GraphicsInterface
 		static int GetCurrentSelectableMenuItem() { return addRequest(&Interface::internalGetCurrentSelectableMenuItem).get(); }
 		static void ClearSelectableMenuItems() { addRequest(&Interface::internalClearSelectableMenuItems).get(); }
 		static void AddSelectableMenuItem(int item) { addRequest(&Interface::internalAddSelectableMenuItem, item).get(); }
-		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate) { addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompositionText), imeCursorPos, std::move(guiCandidateTexts), SelectedCandidate).get(); }
-		static void UpdateInputBox(int id, std::wstring newText, int cursorPos) { addRequest(&Interface::internalUpdateInputBox, id, std::move(newText), cursorPos).get(); }
+		static void AddIMEOverlay(int InputBoxID, std::wstring IMEcompText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate) { addRequest(&Interface::internalAddIMEOverlay, InputBoxID, std::move(IMEcompText), imeCursorPos, std::move(guiCandidateTexts), SelectedCandidate).get(); }
+		static void UpdateInputBox(int id, std::wstring newText, int cursorPos, std::wstring IMEcompText = L"", int imeCursorPos = -1, std::vector<std::wstring> guiCandidateTexts = {}, int SelectedCandidate = -1) { addRequest(&Interface::internalUpdateInputBox, id, std::move(newText), cursorPos, std::move(IMEcompText), imeCursorPos, std::move(guiCandidateTexts), SelectedCandidate).get(); }
 		static int GetInputBoxLineCount(int ID) { return addRequest(&Interface::internalGetInputBoxLineCount, ID).get(); }
 		static Util::RECTF GetInputBoxLineRect(int ID, int LineIndex) { return addRequest(&Interface::internalGetInputBoxLineRect, ID, LineIndex).get(); }
 		static Util::Vector2 GetInputBoxCursorPos(int ID) { return addRequest(&Interface::internalGetInputBoxCursorPos, ID).get(); }
@@ -235,9 +235,9 @@ namespace GraphicsInterface
 		static void internalClearSelectableMenuItems();
 		static void internalSetGUISelection(int Index);
 		static void internalAddIMEOverlay(int InputBoxID, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate);
+		static void internalUpdateInputBox(int ID, const std::wstring& CurrentInput, int cursorPos, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate);
 		static void internalRotateControl(int ID, float rotation);
 		static bool internalControl(int ID);
-		static void internalUpdateInputBox(int ID, const std::wstring& CurrentInput, int cursorPos);
 		static int internalGetInputBoxLineCount(int ID);
 		static Util::RECTF internalGetInputBoxLineRect(int ID, int LineIndex);
 		static Util::Vector2 internalGetInputBoxCursorPos(int ID);

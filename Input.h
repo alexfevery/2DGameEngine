@@ -27,12 +27,15 @@ namespace Input
 	inline std::function<std::wstring(const std::wstring&)> g_processTextFunc = nullptr;
 	inline std::function<std::wstring(const std::wstring&)> g_onEndTextEntryFunc = nullptr;
 	inline std::function<void()> g_onNextKeyDown = nullptr;
-
+	inline void SetTextProcessingFunction(std::function<std::wstring(const std::wstring&)> func) { g_processTextFunc = func; }
+	inline void SetOnStartTypingFunction(std::function<std::wstring(const std::wstring&)> func) { g_onStartTextEntryFunc = func; }
+	inline void SetOnEndTypingFunction(std::function<std::wstring(const std::wstring&)> func) { g_onEndTextEntryFunc = func; }
+	inline void SetOnNextKeyDownFunction(std::function<void()> func) { g_onNextKeyDown = func; }
 
 	struct IMEState
 	{
 		int SelectedCandidate = 0;
-		int IMECursorPos = 0;
+		int IMECursorPos = -1;
 		std::wstring IMECompositionText;
 		std::vector<std::wstring> guiCandidateTexts;
 	};
@@ -41,7 +44,7 @@ namespace Input
 	{
 		std::wstring CurrentInputText;
 		int CursorPosition = -1;
-		std::optional<IMEState> IMEState;
+		IMEState IMEState;
 		std::wstring PrefillInputText;
 	};
 
@@ -50,10 +53,12 @@ namespace Input
 	inline std::wstring PrefillInputText;
 	inline bool InputActive = false;
 	inline bool InputTextEnabled() { return InputActive; }
-	inline void EnableInputText(std::wstring prefill = L"")
+	inline void EnableInputText(std::wstring prefill = L"", std::function<std::wstring(std::wstring)> textProcessingFunction = nullptr, std::function<std::wstring(std::wstring)> endTextFunction = nullptr)
 	{
 		InputActive = true;
 		PrefillInputText = prefill;
+		SetTextProcessingFunction(textProcessingFunction);
+		SetOnEndTypingFunction(endTextFunction);
 	}
 	inline void DisableInputText()
 	{
@@ -70,6 +75,7 @@ namespace Input
 		friend void AlertInputAwaiters(UINT message, WPARAM wParam, LPARAM lParam);
 		friend class InputAwaiter;
 	public:
+		bool WindowActive = false;
 		Util::Vector2 mousePos;
 		int mouseWheelDelta = 0;
 		InputResultType ActionType = InputResultType::NONE;
@@ -110,7 +116,7 @@ namespace Input
 	inline WNDPROC g_OldEditProc;
 
 	inline RECT Hostrect;
-
+	inline bool WindowActive = false;
 	inline bool EnableKeyboardSelect = true;
 	inline const int MaxInputLength = 256;
 	inline bool IMEComposing = false;
@@ -295,10 +301,6 @@ InputEvent UserAction = {};
 	void DestroyOverlay();
 	void AttachToWindow(HWND windowHandle);
 
-	inline void SetTextProcessingFunction(std::function<std::wstring(const std::wstring&)> func) { g_processTextFunc = func; }
-	inline void SetOnStartTypingFunction(std::function<std::wstring(const std::wstring&)> func) { g_onStartTextEntryFunc = func; }
-	inline void SetOnEndTypingFunction(std::function<std::wstring(const std::wstring&)> func) { g_onEndTextEntryFunc = func; }
-	inline void SetOnNextKeyDownFunction(std::function<void()> func) { g_onNextKeyDown = func; }
 	void RequestCloseWindow();
 	std::wstring GetInputText();
 	int GetCursorPosition();

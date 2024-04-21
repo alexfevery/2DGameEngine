@@ -59,8 +59,7 @@ void DemoMenu::Show()
 		{
 			Interface::BeginChainRequests();
 			if (!Interface::Control(inputBoxID)) { inputBoxID = Interface::CreateInputBox(Util::RECTF(.35f, .5f, .65f, .6f), WHITE, BLACK, true, true, true); }
-			Interface::UpdateInputBox(inputBoxID, event.TextState.CurrentInputText, event.TextState.IMEState.has_value() ? -1 : event.TextState.CursorPosition);
-			if (event.TextState.IMEState.has_value()) { Interface::AddIMEOverlay(inputBoxID, event.TextState.IMEState->IMECompositionText, event.TextState.IMEState->IMECursorPos, event.TextState.IMEState->guiCandidateTexts, event.TextState.IMEState->SelectedCandidate); }
+			Interface::UpdateInputBox(inputBoxID, event.TextState.CurrentInputText, event.TextState.CursorPosition, event.TextState.IMEState.IMECompositionText, event.TextState.IMEState.IMECursorPos, event.TextState.IMEState.guiCandidateTexts, event.TextState.IMEState.SelectedCandidate);
 			Interface::EndChainRequests();
 		}
 		return false;

@@ -46,7 +46,6 @@ Util::RECTF OutputBuffer::GetOutputBufferRect()
 	float startX = (WindowDimensions.X * refdpi / dpi - scaledWidth) / 2.0f;
 	float startY = (WindowDimensions.Y * refdpi / dpi - scaledHeight) / 2.0f;
 
-	// Create and return the final Rect
 	return Util::RECTF(startX, startY, startX + scaledWidth, startY + scaledHeight);
 }
 
@@ -213,7 +212,7 @@ void ReleaseBuffers()
 void CreateBuffers(HWND handle)
 {
 	if (!RenderEngineInitialized) { return; }
-	ReleaseBuffers();  // Clear existing buffers
+	ReleaseBuffers(); 
 	OutputBuffer::TargetWindow = handle;
 	Util::Vector2 WindowDimensions = Util::GetClientRect(handle).GetSize();
 	Util_D2DCall(pD2DFactory->CreateHwndRenderTarget(RenderTargetProperties(), HwndRenderTargetProperties(handle, SizeU(static_cast<int>(WindowDimensions.X), static_cast<int>(WindowDimensions.Y))), &OutputBuffer::RenderTarget));

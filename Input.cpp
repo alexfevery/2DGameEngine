@@ -103,6 +103,7 @@ LRESULT CALLBACK Input::ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam
 		break;
 	case WM_MOUSEWHEEL:
 	case WM_MOUSEMOVE:
+		break;
 	case WM_KEYDOWN:
 		SetFocus(hEdit);
 		break;
@@ -115,6 +116,30 @@ LRESULT CALLBACK Input::ProcessInputMessage(HWND m_hwnd, UINT msg, WPARAM wParam
 		SetForegroundWindow(GetParent(m_hwnd));
 		SetFocus(hEdit);
 		break;
+	case WM_ACTIVATE:
+		WindowActive = (wParam != WA_INACTIVE);
+		if (!WindowActive)
+		{
+			HWND hActiveWindow = (HWND)lParam;
+			HWND hostWindow = GetParent(m_hwnd);
+			if (hActiveWindow == hostWindow || IsChild(hostWindow, hActiveWindow)) {WindowActive = true;}
+		}
+		break;
+	case WM_TIMER: {
+		HWND foregroundWindow = GetForegroundWindow();
+		HWND hostWindow = GetParent(m_hwnd);
+		if (foregroundWindow == hostWindow && IsWindowVisible(hostWindow) && !Util::IsWindowMinimized(hostWindow))
+		{
+			if (Util::GetWindowRect(hostWindow).Contains(Util::GetCursorPos()))
+			{
+				if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0 && (GetAsyncKeyState(VK_RBUTTON) & 0x8000) == 0 && (GetAsyncKeyState(VK_MBUTTON) & 0x8000) == 0)
+				{
+					SetFocus(hEdit);
+				}
+			}
+		}
+		break;
+	}
 	case WM_COMMAND:
 		if (HIWORD(wParam) == EN_CHANGE && LOWORD(wParam) == 1)
 		{
@@ -179,6 +204,21 @@ LRESULT CALLBACK Input::SubclassedEditProc(HWND hwnd, UINT msg, WPARAM wParam, L
 			if (IMEComposing && wParam == VK_RIGHT || wParam == VK_LEFT) { return true; }
 		}
 		break;
+	case WM_PASTE: {
+		wstring text = Util::GetClipboardText(hwnd);
+		text = Util::ReplaceAllSubStr(Util::ReplaceAllSubStr(text, L"\n", L""),L"\r",L"");
+		if(!text.empty())
+		{ 
+			wstring existing = GetInputText();
+			if((text.size()+existing.size()) < MaxInputLength)
+			{
+				int pos = GetCursorPosition();
+				SetInputText(existing.substr(0, pos) + text + existing.substr(pos),false,true);
+				SendMessage(hwnd, EM_SETSEL, pos + text.length(), pos + text.length());
+			}
+		}
+		return 0;
+	}
 	}
 	return CallWindowProc(g_OldEditProc, hwnd, msg, wParam, lParam);
 }
@@ -190,13 +230,15 @@ void Input::AlertInputAwaiters(UINT message, WPARAM wParam, LPARAM lParam) {
 	int mouseX = -1;
 	int mouseY = -1;
 	int VKCode = -1;
-	bool down;
+	bool down = false;
+	bool key = false;
 	switch (message)
 	{
 	case WM_KEYDOWN:
 	case WM_KEYUP: {
 		VKCode = static_cast<int>(wParam);
 		down = (message == WM_KEYDOWN);
+		key = true;
 		break;
 	}
 	case WM_LBUTTONDOWN:
@@ -240,9 +282,15 @@ void Input::AlertInputAwaiters(UINT message, WPARAM wParam, LPARAM lParam) {
 	std::optional<TextInputState> currentTextState;
 	std::lock_guard<std::mutex> lk(listMutex);
 	for (int i = 0; i < AwaiterList.size(); i++)
-	{
-		if (AwaiterList[i]->ConditionMet) { continue; }
+	{		
 		InputAwaiter* currentAwaiter = AwaiterList[i];
+		if (currentAwaiter->ConditionMet) { continue; }
+		if (SignalCloseWindow)
+		{
+			currentAwaiter->Abort = true;
+			currentAwaiter->cv.notify_one();
+			continue;
+		}
 		if (InputActive)
 		{
 			if (!currentTextState.has_value()) { currentTextState = ProcessTextInput(); }
@@ -255,18 +303,22 @@ void Input::AlertInputAwaiters(UINT message, WPARAM wParam, LPARAM lParam) {
 		}
 		else if (VKCode != -1 && (currentAwaiter->UserAction.ActionType == InputResultType::MOUSEDOWN || currentAwaiter->UserAction.ActionType == InputResultType::MOUSERELEASED || currentAwaiter->UserAction.ActionType == InputResultType::KEYDOWN || currentAwaiter->UserAction.ActionType == InputResultType::KEYRELEASED))
 		{
-			vector<vector<int>> combos = (!currentAwaiter->UserAction.keyCombos.empty() ? currentAwaiter->UserAction.keyCombos : vector<vector<int>>{ { VKCode} });
-			for (int i = 0; i < combos.size(); i++)
+			if (((currentAwaiter->UserAction.ActionType == InputResultType::MOUSEDOWN || currentAwaiter->UserAction.ActionType == InputResultType::MOUSERELEASED) && !key) || ((currentAwaiter->UserAction.ActionType == InputResultType::KEYDOWN || currentAwaiter->UserAction.ActionType == InputResultType::KEYRELEASED) && key))
 			{
-				if (std::all_of(combos[i].begin(), combos[i].end(), [&](int k)
-					{
-						if (currentAwaiter->UserAction.ActionType == InputResultType::KEYDOWN || currentAwaiter->UserAction.ActionType == InputResultType::MOUSEDOWN) { return CurrentControlState[k] && !PreviousControlState[k]; }
-						else if (currentAwaiter->UserAction.ActionType == InputResultType::KEYRELEASED || currentAwaiter->UserAction.ActionType == InputResultType::MOUSERELEASED) { return !CurrentControlState[k] && PreviousControlState[k]; }
-					}))
+				vector<vector<int>> combos = (!currentAwaiter->UserAction.keyCombos.empty() ? currentAwaiter->UserAction.keyCombos : vector<vector<int>>{ { VKCode} });
+				for (int i = 0; i < combos.size(); i++)
 				{
-					currentAwaiter->ConditionMet = true;
-					currentAwaiter->UserAction.keyCombos = { combos[i] };
-					break;
+					if (Util::VectorContains(combos[i], VKCode) && std::all_of(combos[i].begin(), combos[i].end(), [&](int k)
+						{
+							if (currentAwaiter->UserAction.ActionType == InputResultType::KEYDOWN || currentAwaiter->UserAction.ActionType == InputResultType::MOUSEDOWN) { return CurrentControlState[k] && !PreviousControlState[k]; }
+							else if (currentAwaiter->UserAction.ActionType == InputResultType::KEYRELEASED || currentAwaiter->UserAction.ActionType == InputResultType::MOUSERELEASED) { return !CurrentControlState[k] && PreviousControlState[k]; }
+							return false;
+						}))
+					{
+						currentAwaiter->ConditionMet = true;
+						currentAwaiter->UserAction.keyCombos = { combos[i] };
+						break;
+					}
 				}
 			}
 		}
@@ -287,20 +339,15 @@ void Input::AlertInputAwaiters(UINT message, WPARAM wParam, LPARAM lParam) {
 			mouseY = GET_Y_LPARAM(lParam);
 			currentAwaiter->UserAction.mousePos = Util::Vector2(mouseX, mouseY);
 		}
-		if (currentAwaiter->ConditionMet && currentAwaiter->UserAction.ActionType == InputResultType::IDLE && message == WM_TIMER)
-		{
-			currentAwaiter->UserAction.mousePos = Util::GetClientAreaCursorPos(hInputWindow);
-		}
 		if (currentAwaiter->ConditionMet)
 		{
+			if(currentAwaiter->UserAction.ActionType == InputResultType::IDLE && message == WM_TIMER){ currentAwaiter->UserAction.mousePos = Util::GetClientAreaCursorPos(hInputWindow); }
+			currentAwaiter->UserAction.WindowActive = WindowActive;
 			currentAwaiter->UserAction.endtime = currentTime;
 			currentAwaiter->cv.notify_one();
 		}
 	}
 }
-
-
-
 
 void Input::SetInputText(wstring text, bool SetCursorToEnd, bool TriggerMessage)
 {
@@ -327,8 +374,8 @@ int Input::GetCursorPosition()
 	DWORD pos;
 	SendMessageW(hEdit, EM_GETSEL, reinterpret_cast<WPARAM>(&pos), NULL);
 	int textLength = GetWindowTextLength(hEdit);
-	if (textLength == 0) return 0;
-	if (pos > static_cast<DWORD>(textLength)) return textLength;
+	if (textLength == 0) { return 0; }
+	if (pos > static_cast<DWORD>(textLength)) { return textLength; }
 	return static_cast<int>(pos);
 }
 
@@ -350,7 +397,6 @@ Restart:
 		{
 			if (!Enabled) { goto Restart; }
 			if (SignalCloseWindow) { break; }
-
 			{
 				std::lock_guard<std::mutex> lk(listMutex);
 				AwaiterList.push_back(this);
@@ -413,14 +459,14 @@ Restart:
 
 TextInputState Input::ProcessTextInput()
 {
-	TextInputState CurrentTextInputState;
+	TextInputState CurrentTextInputState = {};
 	CurrentTextInputState.PrefillInputText = PrefillInputText;
 	CurrentTextInputState.CurrentInputText = GetInputText();
-	CurrentTextInputState.CursorPosition = GetCursorPosition();
+	if(WindowActive){CurrentTextInputState.CursorPosition = GetCursorPosition();}
+	else { CurrentTextInputState.CursorPosition = -1; }
 	if (IMEComposing && hImc != NULL)
 	{
 		IMEActivated = true;
-		CurrentTextInputState.IMEState = IMEState();
 		DWORD dwCompLen = ImmGetCompositionStringW(hImc, GCS_COMPSTR, NULL, 0);
 		std::vector<wchar_t> compositionBuffer(dwCompLen / sizeof(wchar_t));
 		ImmGetCompositionString(hImc, GCS_COMPSTR, compositionBuffer.data(), dwCompLen);
@@ -428,8 +474,9 @@ TextInputState Input::ProcessTextInput()
 		if (!NewCompositionText.empty() && !IMECompositionComplete)
 		{
 			IMECompositionText = NewCompositionText;
-			CurrentTextInputState.IMEState->IMECompositionText = NewCompositionText;
-			CurrentTextInputState.IMEState->IMECursorPos = ImmGetCompositionString(hImc, GCS_CURSORPOS, NULL, 0);
+			CurrentTextInputState.IMEState.IMECompositionText = NewCompositionText;
+			if (WindowActive) { CurrentTextInputState.IMEState.IMECursorPos = ImmGetCompositionString(hImc, GCS_CURSORPOS, NULL, 0); }
+			else { CurrentTextInputState.IMEState.IMECursorPos = -1; }
 			CANDIDATELIST* pCandidateList;
 			DWORD dwSize = ImmGetCandidateList(hImc, 0, NULL, 0);
 			pCandidateList = (CANDIDATELIST*) new char[dwSize + sizeof(wchar_t)]; // Allocate extra space
@@ -437,7 +484,7 @@ TextInputState Input::ProcessTextInput()
 			DWORD* OffSet = pCandidateList->dwOffset;
 			DWORD TotalSize = pCandidateList->dwSize;
 			int CandidateCount = pCandidateList->dwCount;
-			CurrentTextInputState.IMEState->SelectedCandidate = pCandidateList->dwSelection;
+			CurrentTextInputState.IMEState.SelectedCandidate = pCandidateList->dwSelection;
 			for (int i = 0; i < min(CandidateCount, 5); i++)
 			{
 				wchar_t* start = (wchar_t*)((BYTE*)pCandidateList + OffSet[i]);
@@ -448,7 +495,7 @@ TextInputState Input::ProcessTextInput()
 				if ((BYTE*)end > ((BYTE*)pCandidateList + TotalSize)) { end = (wchar_t*)((BYTE*)pCandidateList + TotalSize); }
 				wchar_t* real_end = start;
 				while (real_end < end && real_end < ((wchar_t*)pCandidateList + dwSize / sizeof(wchar_t)) && *real_end) { ++real_end; } // Check bounds
-				CurrentTextInputState.IMEState->guiCandidateTexts.push_back(std::wstring(start, real_end - start));
+				CurrentTextInputState.IMEState.guiCandidateTexts.push_back(std::wstring(start, real_end - start));
 			}
 			delete[] pCandidateList;
 		}

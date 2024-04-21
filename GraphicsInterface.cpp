@@ -626,12 +626,12 @@ void Interface::internalAddIMEOverlay(int ID, wstring IMEcompositionText, int im
 }
 
 
-void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput, int cursorPos)
+void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput, int cursorPos, std::wstring IMEcompositionText, int imeCursorPos, std::vector<std::wstring> guiCandidateTexts, int SelectedCandidate)
 {
 	GUI_InputBox* box = static_cast<GUI_InputBox*>(internalGetControl(ID));
 	box->GUITexts.clear();
-	box->IMEBox = nullopt;
 	box->IMETextItems.clear();
+	box->IMEBox = nullopt;
 	box->Cursor = nullopt;
 	vector<wstring> lines;
 	wstring remainingText = CurrentInput;
@@ -639,6 +639,7 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput,
 	int accumulatedLength = 0;
 	int cursorLine = 0;
 	int cursorIndex = -1;
+	bool ShowCursor = (box->DisplayCursor && cursorPos != -1 && imeCursorPos == -1);
 	while (!remainingText.empty())
 	{
 		Util::RECTF textRect = GetStringRectN(remainingText, fontHeight, 0, currentPosition, false);
@@ -646,7 +647,7 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput,
 		if (textWidth <= box->GetRectN().GetSize().X)
 		{
 			lines.push_back(remainingText);
-			if (cursorPos != -1)
+			if (ShowCursor)
 			{
 				if (cursorIndex == -1 && cursorPos <= accumulatedLength + remainingText.size())
 				{
@@ -667,7 +668,7 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput,
 				{
 					lines.push_back(testLine);
 					remainingText = remainingText.substr(splitPos);
-					if (cursorPos != -1)
+					if (ShowCursor)
 					{
 						accumulatedLength += splitPos;
 						if (cursorIndex == -1 && cursorPos <= accumulatedLength)
@@ -692,7 +693,7 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput,
 		if (box->CenterInput) { inputRect.SetPositionTopLeft(GetTextAlignCenter(lines[i], fontHeight, 0, inputRect.GetTopLeft())); }
 		if (inputRect.Bottom >= box->GetRectN().Bottom) { break; }
 		box->GUITexts.push_back(GUIText(-1, lines[i], inputRect, box->TextColor, 0, TRANSPARENT_COLOR, box->TextColor, -1));
-		if (cursorPos != -1 && i == cursorLine)
+		if (ShowCursor && i == cursorLine)
 		{
 			wstring cursorSubstring = lines[i].substr(0, cursorIndex);
 			Util::RECTF cursorRect = GetSubStringRectN(lines[i], cursorSubstring, fontHeight, 0, inputRect.GetTopLeft(), false, 0);
@@ -740,10 +741,11 @@ void Interface::internalUpdateInputBox(int ID, const std::wstring& CurrentInput,
 		}
 	}
 
-	if (box->DisplayCursor && cursorPos != -1)
+	if (ShowCursor)
 	{
 		if (GetTickCount64() % (2 * box->CursorBlinkInterval) < box->CursorBlinkInterval) { box->Cursor = GUIText(-1, CursorDesign, GetStringRectN(CursorDesign, fontHeight, 0, box->GetCursorPos(), false), box->TextColor, 0, TRANSPARENT_COLOR, box->TextColor, -1); }
 	}
+	if (!IMEcompositionText.empty()) { internalAddIMEOverlay(ID, IMEcompositionText, imeCursorPos, guiCandidateTexts, SelectedCandidate); }
 	return;
 }
 
